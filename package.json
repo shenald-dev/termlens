@@ -1,0 +1,60 @@
+{
+  "name": "termlens",
+  "version": "0.1.0",
+  "description": "Zero-Token Terminal Compactor & Semantic Error Lens for Developers and AI Agents",
+  "keywords": [
+    "cli",
+    "developer-tools",
+    "ai",
+    "tokens",
+    "terminal",
+    "context-optimization",
+    "mcp",
+    "dx",
+    "jest",
+    "pytest",
+    "tsc",
+    "compression"
+  ],
+  "author": "shenald-dev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shenald-dev/termlens.git"
+  },
+  "homepage": "https://github.com/shenald-dev/termlens#readme",
+  "bugs": {
+    "url": "https://github.com/shenald-dev/termlens/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "termlens": "./bin/termlens.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "start": "node ./bin/termlens.js",
+    "test": "node --test tests/ansi.test.js tests/ring-buffer.test.js tests/lenses.test.js tests/engine.test.js tests/benchmark.test.js tests/mcp.test.js",
+    "lint": "tsc --noEmit",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
