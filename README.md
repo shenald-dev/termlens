@@ -1,5 +1,9 @@
 <div align="center">
 
+<img src="assets/hero_banner.jpg" alt="termlens - Zero-Token Terminal Compactor for AI Coding Agents" width="100%" />
+
+<br/>
+
 ```
   ████████╗███████╗██████╗ ███╗   ███╗██╗     ███████╗███╗   ██╗███████╗
   ╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║     ██╔════╝████╗  ██║██╔════╝
