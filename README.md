@@ -15,6 +15,7 @@
 
 ### 🔍 Strip 90% Terminal Noise. Feed Clean Signal to AI.
 
+[![Dev.to Case Study](https://img.shields.io/badge/Case_Study-Dev.to-0a0a0a.svg?style=for-the-badge&logo=dev.to&logoColor=white&labelColor=0d1117)](https://dev.to/shenald/we-measured-1500-lines-of-terminal-bloat-burning-020-per-prompt-in-cursor-heres-how-we-1a4)
 [![npm version](https://img.shields.io/npm/v/termlens.svg?style=for-the-badge&color=00f0ff&labelColor=0d1117)](https://www.npmjs.com/package/termlens)
 [![License: MIT](https://img.shields.io/badge/License-MIT-00ff88.svg?style=for-the-badge&labelColor=0d1117)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-339933?style=for-the-badge&logo=node.js&logoColor=white&labelColor=0d1117)](https://nodejs.org/)
