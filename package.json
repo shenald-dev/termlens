@@ -20,7 +20,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/shenald-dev/termlens.git"
+    "url": "git+https://github.com/shenald-dev/termlens.git"
   },
   "homepage": "https://github.com/shenald-dev/termlens#readme",
   "bugs": {
@@ -30,7 +30,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "termlens": "./bin/termlens.js"
+    "termlens": "bin/termlens.js"
   },
   "files": [
     "dist",
