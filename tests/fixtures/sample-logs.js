@@ -127,3 +127,64 @@ Dockerfile:14
 --------------------
 ERROR: failed to solve: process "/bin/sh -c npm ci --omit=dev" did not complete successfully: exit code: 1
 `;
+
+export const GO_NOISY_FIXTURE = `
+=== RUN   TestHealthCheck
+--- PASS: TestHealthCheck (0.00s)
+=== RUN   TestUserAuthentication
+=== RUN   TestUserAuthentication/valid_creds
+    --- PASS: TestUserAuthentication/valid_creds (0.01s)
+=== RUN   TestUserAuthentication/expired_token
+    auth_test.go:45: status mismatch: expected 401, got 200
+    auth_test.go:48: token signature failed to reject
+--- FAIL: TestUserAuthentication (0.02s)
+=== RUN   TestDatabaseConnection
+--- PASS: TestDatabaseConnection (0.05s)
+FAIL
+FAIL	github.com/org/project/pkg/auth	0.145s
+FAIL
+`;
+
+export const PYTHON_LINT_FIXTURE = `
+src/server/auth.py:42:1: F401 [*] 'os' imported but unused
+src/server/auth.py:88:5: E501 line too long (92 > 79 characters)
+src/database/client.py:15:12: error: Incompatible return value type (got "None", expected "Client")  [return-value]
+`;
+
+export const JS_LINT_FIXTURE = `
+/app/src/index.ts
+  15:3  error  'foo' is defined but never used  @typescript-eslint/no-unused-vars
+  24:7  error  Missing return type on function  @typescript-eslint/explicit-function-return-type
+
+✖ 2 problems (2 errors, 0 warnings)
+`;
+
+export const CLANG_NOISY_FIXTURE = `
+src/main.cpp:42:15: error: expected ';' at end of declaration
+   42 |   int x = 10
+      |             ^
+      |             ;
+include/config.h:12:5: warning: implicit conversion loses integer precision: 'long long' to 'int' [-Wconversion]
+`;
+
+export const DOTNET_NOISY_FIXTURE = `
+Controllers/UserController.cs(45,12): error CS1503: Argument 1: cannot convert from 'int' to 'string' [MyProject.csproj]
+CSC : error CS0103: The name 'ValidationToken' does not exist in the current context
+Passed!  - Failed:     1, Passed:    42, Skipped:     0, Total:    43, Duration: 245 ms - MyProject.Tests.dll
+`;
+
+export const CASCADING_FAILURES_FIXTURE = `
+FAIL src/tests/auth.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/users.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/billing.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/orders.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/products.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/shipping.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/inventory.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/reports.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/notifications.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/webhooks.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/analytics.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/settings.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+FAIL src/tests/logs.test.ts: connect ECONNREFUSED 127.0.0.1:5432
+`;

@@ -1,13 +1,18 @@
 import pc from 'picocolors';
 import { TermlensExecutionResult } from '../types.js';
 
-export function formatHuman(result: TermlensExecutionResult): string {
+export function formatHuman(result: TermlensExecutionResult, quietSuccess: boolean = false): string {
+  // If command succeeded and quietSuccess is enabled, return minimal one-line badge
+  if (result.status === 'success' && quietSuccess) {
+    return `${pc.bold(pc.green('✓'))} ${pc.bold(pc.white(result.command))} ${pc.dim(`(${result.durationMs}ms)`)}`;
+  }
+
   const lines: string[] = [];
   const divider = pc.dim('─'.repeat(64));
 
   // Top header banner
   const lensBadge = pc.cyan(`[lens: ${result.lensUsed}]`);
-  const header = `${pc.bold(pc.cyan('🔍 termlens'))} ${pc.dim(`v0.1.0`)} ${lensBadge}`;
+  const header = `${pc.bold(pc.cyan('🔍 termlens'))} ${pc.dim(`v0.2.0`)} ${lensBadge}`;
   lines.push(header);
   lines.push(divider);
 
@@ -30,15 +35,23 @@ export function formatHuman(result: TermlensExecutionResult): string {
     lines.push(pc.yellow(`  ${result.summary}`));
     lines.push('');
 
-    // Error details
-    if (result.errors.length > 0) {
-      result.errors.forEach((err, idx) => {
+    // Error details (clusters or list)
+    const errorItems = result.clusters && result.clusters.length > 0
+      ? result.clusters
+      : result.errors.map(e => ({ exemplar: e, occurrences: 1, locations: [], isClustered: false }));
+
+    if (errorItems.length > 0) {
+      errorItems.forEach((item, idx) => {
+        const err = item.exemplar;
         const indexStr = pc.bold(pc.red(`[#${idx + 1}]`));
+
         if (err.file) {
           const loc = err.line ? `:${err.line}${err.column ? `:${err.column}` : ''}` : '';
-          lines.push(`  ${indexStr} ${pc.bold(pc.underline(pc.cyan(err.file + loc)))}`);
+          const occurrencesNote = item.isClustered ? pc.yellow(` (occurred ${item.occurrences}x)`) : '';
+          lines.push(`  ${indexStr} ${pc.bold(pc.underline(pc.cyan(err.file + loc)))}${occurrencesNote}`);
         } else {
-          lines.push(`  ${indexStr} ${pc.bold(pc.red('Error'))}`);
+          const occurrencesNote = item.isClustered ? pc.yellow(` (occurred ${item.occurrences}x)`) : '';
+          lines.push(`  ${indexStr} ${pc.bold(pc.red('Error'))}${occurrencesNote}`);
         }
 
         if (err.code) {
@@ -59,6 +72,13 @@ export function formatHuman(result: TermlensExecutionResult): string {
             lines.push(`        ${pc.dim(s)}`);
           }
         }
+
+        if (item.isClustered && item.locations.length > 1) {
+          const extraFiles = item.locations.slice(1, 4).map(l => pc.dim(`${l.file}:${l.line}`)).join(', ');
+          const more = item.locations.length > 4 ? pc.dim(` (+${item.locations.length - 4} more)`) : '';
+          lines.push(`      ${pc.dim('Also in:')} ${extraFiles}${more}`);
+        }
+
         lines.push('');
       });
     }
@@ -85,12 +105,16 @@ export function formatHuman(result: TermlensExecutionResult): string {
     ? pc.bold(pc.green(savingsText)) 
     : pc.yellow(savingsText);
 
+  const costText = result.estimatedCostSavingsUsd > 0
+    ? `  │  ${pc.bold(pc.green(`💵 ~$${result.estimatedCostSavingsUsd.toFixed(4)} saved`))}`
+    : '';
+
   const metrics = [
     `⏱️  ${result.durationMs}ms`,
     `📉 ${result.rawLineCount} lines → ${result.compactLineCount} lines`,
     styledSavings,
     pc.dim(`[Tokens: ~${result.rawEstimatedTokens} → ~${result.compactEstimatedTokens}]`)
-  ].join('  │  ');
+  ].join('  │  ') + costText;
 
   lines.push(metrics);
 

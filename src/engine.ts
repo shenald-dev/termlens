@@ -1,9 +1,14 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import { RingBuffer } from './utils/ring-buffer.js';
 import { normalizeLines, estimateTokens } from './utils/ansi.js';
 import { LensRegistry } from './lenses/index.js';
 import { formatHuman } from './formatters/human.js';
 import { formatAgent, formatJson } from './formatters/agent.js';
+import { formatCiAnnotations } from './formatters/ci.js';
+import { clusterErrors } from './utils/cluster.js';
+import { calculateTelemetry } from './utils/telemetry.js';
 import { TermlensExecutionResult, TermlensOptions } from './types.js';
 
 export class TermlensEngine {
@@ -55,8 +60,10 @@ export class TermlensEngine {
           tokenSavingsPct: 0,
           rawEstimatedTokens: estimateTokens(errMsg),
           compactEstimatedTokens: estimateTokens(errMsg),
+          estimatedCostSavingsUsd: 0,
           summary: `Failed to spawn command: ${errMsg}`,
           errors: [{ message: errMsg }],
+          clusters: [{ exemplar: { message: errMsg }, occurrences: 1, locations: [], isClustered: false }],
           highlights: [],
           rawTail: [errMsg],
           humanFormatted: `Failed to spawn: ${errMsg}`,
@@ -119,6 +126,17 @@ export class TermlensEngine {
         const lens = this.registry.getLens(options.lens, command, finalRawLines.slice(0, 50));
         const lensOutput = lens.process(finalRawLines, exitCode);
 
+        // Cluster and deduplicate errors unless disabled
+        const maxErrors = options.maxErrors ?? 8;
+        const clustered = options.noCluster
+          ? {
+              clusters: lensOutput.errors.map(e => ({ exemplar: e, occurrences: 1, locations: [], isClustered: false })),
+              totalOriginal: lensOutput.errors.length,
+              deduplicatedCount: lensOutput.errors.length,
+              omittedCount: 0
+            }
+          : clusterErrors(lensOutput.errors, maxErrors);
+
         // Retain raw tail for edge-case diagnostics
         const tailCount = options.tailLines || 8;
         const rawTail = finalRawLines.slice(-tailCount);
@@ -139,8 +157,10 @@ export class TermlensEngine {
           tokenSavingsPct: 0,
           rawEstimatedTokens: estimateTokens(fullRawText),
           compactEstimatedTokens: 0,
+          estimatedCostSavingsUsd: 0,
           summary: timedOut ? `Command timed out after ${options.timeoutMs}ms` : lensOutput.summary,
           errors: lensOutput.errors,
+          clusters: clustered.clusters,
           highlights: lensOutput.highlights || [],
           suggestedAction: lensOutput.suggestedAction,
           rawTail,
@@ -150,23 +170,45 @@ export class TermlensEngine {
         };
 
         // Generate agent view first to determine compact metrics
-        const agentView = formatAgent(provisional);
+        const quiet = options.quietSuccess ?? false;
+        const agentView = formatAgent(provisional, quiet);
         const compactChars = agentView.length;
         const compactLines = agentView.split('\n').length;
-        const compactTokens = estimateTokens(agentView);
-        const savingsPct = provisional.rawEstimatedTokens > 0
-          ? Math.max(0, Math.min(99.9, ((provisional.rawEstimatedTokens - compactTokens) / provisional.rawEstimatedTokens) * 100))
-          : 0;
+
+        const telemetry = calculateTelemetry(
+          provisional.rawLineCount,
+          compactLines,
+          provisional.rawEstimatedTokens,
+          agentView
+        );
 
         provisional.compactCharCount = compactChars;
         provisional.compactLineCount = compactLines;
-        provisional.compactEstimatedTokens = compactTokens;
-        provisional.tokenSavingsPct = savingsPct;
+        provisional.compactEstimatedTokens = telemetry.compactEstimatedTokens;
+        provisional.tokenSavingsPct = telemetry.tokenSavingsPct;
+        provisional.estimatedCostSavingsUsd = telemetry.estimatedCostSavingsUsd;
         provisional.agentFormatted = agentView;
 
-        // Generate human view with accurate metrics
-        provisional.humanFormatted = formatHuman(provisional);
+        // Generate human view and json with accurate metrics
+        provisional.humanFormatted = formatHuman(provisional, quiet);
         provisional.jsonFormatted = formatJson(provisional);
+        provisional.ciFormatted = formatCiAnnotations(provisional);
+
+        // If output file was requested, save it
+        if (options.outputFile) {
+          try {
+            const outDir = path.dirname(options.outputFile);
+            if (!fs.existsSync(outDir)) {
+              fs.mkdirSync(outDir, { recursive: true });
+            }
+            const content = options.jsonMode
+              ? provisional.jsonFormatted
+              : (options.agentMode ? provisional.agentFormatted : provisional.humanFormatted);
+            fs.writeFileSync(options.outputFile, content, 'utf-8');
+          } catch {
+            // Non-fatal
+          }
+        }
 
         resolve(provisional);
       });
@@ -176,12 +218,27 @@ export class TermlensEngine {
   /**
    * Compacts an existing text block or log string without spawning a process.
    */
-  public compactText(text: string, lensName?: string, commandName: string = 'piped_input'): TermlensExecutionResult {
+  public compactText(
+    text: string,
+    lensName?: string,
+    commandName: string = 'piped_input',
+    options: TermlensOptions = {}
+  ): TermlensExecutionResult {
     const normalizedLines = normalizeLines(text);
-    const lens = this.registry.getLens(lensName, commandName, normalizedLines.slice(0, 50));
+    const lens = this.registry.getLens(lensName || options.lens, commandName, normalizedLines.slice(0, 50));
     const isError = text.toLowerCase().includes('fail') || text.toLowerCase().includes('error');
     const exitCode = isError ? 1 : 0;
     const lensOutput = lens.process(normalizedLines, exitCode);
+
+    const maxErrors = options.maxErrors ?? 8;
+    const clustered = options.noCluster
+      ? {
+          clusters: lensOutput.errors.map(e => ({ exemplar: e, occurrences: 1, locations: [], isClustered: false })),
+          totalOriginal: lensOutput.errors.length,
+          deduplicatedCount: lensOutput.errors.length,
+          omittedCount: 0
+        }
+      : clusterErrors(lensOutput.errors, maxErrors);
 
     const rawTokens = estimateTokens(text);
     const provisional: TermlensExecutionResult = {
@@ -197,8 +254,10 @@ export class TermlensEngine {
       tokenSavingsPct: 0,
       rawEstimatedTokens: rawTokens,
       compactEstimatedTokens: 0,
+      estimatedCostSavingsUsd: 0,
       summary: lensOutput.summary,
       errors: lensOutput.errors,
+      clusters: clustered.clusters,
       highlights: lensOutput.highlights || [],
       suggestedAction: lensOutput.suggestedAction,
       rawTail: normalizedLines.slice(-5),
@@ -207,19 +266,39 @@ export class TermlensEngine {
       jsonFormatted: ''
     };
 
-    const agentView = formatAgent(provisional);
-    const compactTokens = estimateTokens(agentView);
-    const savingsPct = rawTokens > 0
-      ? Math.max(0, Math.min(99.9, ((rawTokens - compactTokens) / rawTokens) * 100))
-      : 0;
+    const quiet = options.quietSuccess ?? false;
+    const agentView = formatAgent(provisional, quiet);
+    const telemetry = calculateTelemetry(
+      provisional.rawLineCount,
+      agentView.split('\n').length,
+      rawTokens,
+      agentView
+    );
 
     provisional.compactCharCount = agentView.length;
     provisional.compactLineCount = agentView.split('\n').length;
-    provisional.compactEstimatedTokens = compactTokens;
-    provisional.tokenSavingsPct = savingsPct;
+    provisional.compactEstimatedTokens = telemetry.compactEstimatedTokens;
+    provisional.tokenSavingsPct = telemetry.tokenSavingsPct;
+    provisional.estimatedCostSavingsUsd = telemetry.estimatedCostSavingsUsd;
     provisional.agentFormatted = agentView;
-    provisional.humanFormatted = formatHuman(provisional);
+    provisional.humanFormatted = formatHuman(provisional, quiet);
     provisional.jsonFormatted = formatJson(provisional);
+    provisional.ciFormatted = formatCiAnnotations(provisional);
+
+    if (options.outputFile) {
+      try {
+        const outDir = path.dirname(options.outputFile);
+        if (!fs.existsSync(outDir)) {
+          fs.mkdirSync(outDir, { recursive: true });
+        }
+        const content = options.jsonMode
+          ? provisional.jsonFormatted
+          : (options.agentMode ? provisional.agentFormatted : provisional.humanFormatted);
+        fs.writeFileSync(options.outputFile, content, 'utf-8');
+      } catch {
+        // Non-fatal
+      }
+    }
 
     return provisional;
   }

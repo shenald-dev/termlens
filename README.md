@@ -36,7 +36,7 @@ When you or your AI coding agent (Claude Code, Cursor, Codex, Gemini CLI, Aider)
 ┌──────────────────────────────────────────────┐       ┌──────────────────────────────────────────────┐
 │        BEFORE: WITHOUT TERMLENS              │       │          AFTER: WITH TERMLENS                │
 ├──────────────────────────────────────────────┤       ├──────────────────────────────────────────────┤
-│  PASS src/math.test.ts (1.2s)                │       │  🔍 termlens v0.1.0 [lens: jest]             │
+│  PASS src/math.test.ts (1.2s)                │       │  🔍 termlens v0.2.0 [lens: jest]             │
 │  PASS src/string.test.ts (0.8s)              │       │  ──────────────────────────────────────────  │
 │  PASS src/auth/hash.test.ts (2.1s)           │       │  ✗ FAILED (exit 1) npm test                  │
 │  PASS src/database/client.test.ts (3.4s)     │  ──►  │    1 test failure isolated                   │
@@ -47,7 +47,7 @@ When you or your AI coding agent (Claude Code, Cursor, Codex, Gemini CLI, Aider)
 │      at Object.<anonymous> (...)             │       │      Code: expect(response.status).toBe(401) │
 │      at Promise.then.completed (...)         │       │  ──────────────────────────────────────────  │
 │  ... [400 lines of node_modules stack trace] │       │  ⏱️ 842ms │ 📉 1,482 lines → 4 lines (-97.3%)│
-│  Test Suites: 1 failed, 10 passed            │       │  Tokens: ~3,840 → ~74 tokens                 │
+│  Test Suites: 1 failed, 10 passed            │       │  Tokens: ~3,840 → ~74 tokens ($0.011 saved)  │
 └──────────────────────────────────────────────┘       └──────────────────────────────────────────────┘
 ```
 
@@ -61,17 +61,30 @@ Run any command through `termlens` using `npx`:
 # Run Jest / Vitest test suites
 npx termlens npm test
 
-# Run Python Pytest suites
+# Run Go tests or builds
+npx termlens go test ./...
+
+# Run Python Pytest suites or linters (Ruff / Mypy / Flake8)
 npx termlens pytest tests/
+npx termlens ruff check .
+
+# Run JavaScript / TypeScript linters (ESLint / Biome)
+npx termlens npx eslint src/
 
 # Run TypeScript compiler checks
 npx termlens tsc --noEmit
 
-# Run Docker container builds
-npx termlens docker build .
+# Run C/C++ builds (Make, CMake, GCC, Clang)
+npx termlens make -j4
+
+# Run .NET tests or builds
+npx termlens dotnet test
 
 # Run Rust Cargo checks or tests
 npx termlens cargo test
+
+# Run Docker container builds
+npx termlens docker build .
 ```
 
 Or install globally for lightning-fast everyday terminal usage:
@@ -148,8 +161,10 @@ Add `termlens` to your `mcpServers` configuration (`claude_desktop_config.json` 
 
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| `termlens_exec` | `command` (str), `lens` (optional), `cwd` (optional), `timeoutMs` (optional) | Executes shell command with automated token compaction, returning clean agent markdown. |
-| `termlens_compact` | `text` (str), `lens` (optional) | Compacts raw terminal text blocks or log traces on the fly without spawning processes. |
+| `termlens_exec` | `command` (str), `lens` (optional), `cwd` (optional), `timeoutMs` (optional), `quietSuccess` (optional) | Executes shell command with automated token compaction, returning clean agent markdown. |
+| `termlens_compact` | `text` (str), `lens` (optional), `quietSuccess` (optional) | Compacts raw terminal text blocks or log traces on the fly without spawning processes. |
+| `termlens_list_lenses` | *None* | Discovers all 11+ available built-in and user-defined semantic lenses. |
+| `termlens_explain` | `errorText` (str), `lens` (optional) | Provides structured failure analysis, probable root cause, and remediation guidance. |
 
 ---
 
@@ -164,11 +179,86 @@ Add `termlens` to your `mcpServers` configuration (`claude_desktop_config.json` 
 | **`tsc`** | `tsc`, `typecheck`, `vite build` | Redundant build text, empty lines | Groups errors by file path, `TSxxxx` code, file location (`file:line:col`) |
 | **`cargo`** | `cargo test`, `cargo build` | `Compiling...`, crate downloads | `error[E0xxx]` headers, code location (`--> src/main.rs:12:9`) |
 | **`docker`** | `docker build`, `podman` | Intermediate layer transfer hashes (`#4 CACHED`) | Exact failed Dockerfile step, command failure code |
+| **`go`** | `go test`, `go build`, `go vet` | PASS benchmarks, directory banners, runtime internals | Failed test name, assertion message, panic trace, compile line |
+| **`python-lint`** | `ruff`, `mypy`, `flake8` | Success stats, file tree scanning logs | Violation code (`F401`, `E501`), file coordinates, mypy type errors |
+| **`js-lint`** | `eslint`, `biome` | Passing file trees, configuration logs | ESLint/Biome rule name, severity, exact line:column |
+| **`clang`** | `gcc`, `clang`, `make`, `cmake` | Build step banners, include search paths | Compiler error/warning, diagnostic code snippet, caret pointer |
+| **`dotnet`** | `dotnet test`, `dotnet build` | MSBuild project headers, passing test classes | `CSxxxx` error code, failed test namespaces, assertion failures |
+| **`custom`** | User-defined command regex | Matched log noise | User regex capture groups (`file`, `line`, `col`, `code`, `message`) |
 | **`generic`** | *Universal fallback* | Progress bars, blank lines, uninformative logs | Root cause error line, uncaught exceptions, top 3 stack frames |
 
 Inspect all registered lenses at any time:
 ```bash
 termlens --list-lenses
+```
+
+---
+
+## 💡 Advanced Superpowers
+
+### 1. Smart Error Clustering & Deduplication
+When a broken interface or missing type causes 80 identical errors across 40 files, standard tools flood your AI prompt with 3,000 tokens of duplicate noise. `termlens` automatically clusters identical errors:
+
+```text
+Found 42 errors across 18 files. Clustered into 2 root patterns:
+  [Cluster 1] TS2304: Cannot find name 'User' (38 occurrences)
+      Exemplar: src/auth/jwt.ts:14:2
+      Locations: src/api/users.ts:8:5, src/routes/auth.ts:22:10 (+36 more)
+  [Cluster 2] TS2345: Argument of type 'string' is not assignable to 'number' (4 occurrences)
+      Exemplar: src/utils/math.ts:89:12
+```
+
+### 2. Zero-Token Silent Success (`-q, --quiet-success`)
+When your build or test suite succeeds, LLM agents do not need 500 lines of "All tests passed!". Passing `-q` produces minimal zero-token output (`✓ Passed`, ~3 tokens):
+
+```bash
+termlens -a -q npm test
+# Output: ✓ Passed
+```
+
+### 3. GitHub Actions CI Annotations (`--ci`)
+Generate inline GitHub Actions workflow annotations for pull request diff views:
+
+```bash
+termlens --ci npm test
+# Emits: ::error file=src/auth.ts,line=42,col=3,title=Test Failure::Expected 401, got 200
+```
+
+### 4. Declarative Configuration (`termlens.config.json`)
+Scaffold a starter configuration with:
+
+```bash
+termlens --init
+```
+
+Produces `termlens.config.json`:
+```json
+{
+  "defaultLens": "auto",
+  "tailLines": 8,
+  "clusterErrors": true,
+  "maxErrors": 10,
+  "quietSuccess": false,
+  "customLenses": [
+    {
+      "name": "rubocop",
+      "matchCommand": "rubocop",
+      "errorPattern": "([^:]+):(\\d+):(\\d+):\\s+([CWE]):\\s+(.*)",
+      "fileGroup": 1,
+      "lineGroup": 2,
+      "colGroup": 3,
+      "codeGroup": 4,
+      "messageGroup": 5
+    }
+  ]
+}
+```
+
+### 5. File Output Export (`-o, --output`)
+Save compacted results directly to disk for artifact storage or review:
+
+```bash
+termlens -a -o report.md npm test
 ```
 
 ---
@@ -201,12 +291,22 @@ flowchart TD
     E -->|"TypeScript Compiler"| L3["TscLens"]
     E -->|"Rust Cargo"| L4["CargoLens"]
     E -->|"Docker Build"| L5["DockerLens"]
-    E -->|"Fallback"| L6["GenericLens"]
-    L1 & L2 & L3 & L4 & L5 & L6 --> F["Error Isolator & Metrics Engine"]
-    F --> G["Human ANSI Terminal Card<br/>(Default CLI)"]
-    F --> H["Agent Markdown (<100 tokens)<br/>(--agent / -a)"]
-    F --> I["JSON Telemetry<br/>(--json / -j)"]
-    F --> J["Model Context Protocol<br/>(--mcp stdio)"]
+    E -->|"Go Toolchain"| L6["GolangLens"]
+    E -->|"Python Linters"| L7["PythonLintLens"]
+    E -->|"JS / TS Linters"| L8["JsLintLens"]
+    E -->|"C / C++ Compiler"| L9["ClangLens"]
+    E -->|".NET C#"| L10["DotnetLens"]
+    E -->|"User Defined"| L11["CustomLens"]
+    E -->|"Fallback"| L12["GenericLens"]
+    L1 & L2 & L3 & L4 & L5 & L6 & L7 & L8 & L9 & L10 & L11 & L12 --> F["Error Isolator & Parser"]
+    F --> CL["Smart Clustering Engine<br/>(Deduplication & Similarity Grouping)"]
+    CL --> TM["Telemetry & Cost Savings<br/>(Tokens Saved & USD Valuation)"]
+    TM --> G["Human ANSI Terminal Card<br/>(Default CLI)"]
+    TM --> H["Agent Markdown (<100 tokens)<br/>(--agent / -a)"]
+    TM --> I["JSON Telemetry<br/>(--json / -j)"]
+    TM --> CI["GitHub Actions Annotations<br/>(--ci)"]
+    TM --> J["Model Context Protocol<br/>(--mcp stdio)"]
+    TM --> FO["File Output Stream<br/>(-o / --output)"]
 ```
 
 ---
@@ -218,15 +318,21 @@ Usage: termlens [options] <command...>
        cat noisy.log | termlens [options]
 
 Options:
-  -a, --agent          Format output as ultra-compact Markdown for AI agent prompts
-  -j, --json           Format output as structured JSON
-  -l, --lens <name>    Explicitly specify a lens (jest, pytest, tsc, cargo, docker, generic)
-  --tail <lines>       Number of raw tail lines to retain in output (default: 8)
-  --raw                Pass through uncompressed output (dry/debug mode)
-  --mcp                Start the Model Context Protocol (MCP) stdio server
-  --list-lenses        List all registered semantic lenses
-  -v, --version        Display current version
-  -h, --help           Display help manual
+  -a, --agent              Format output as ultra-compact Markdown for AI agent prompts
+  -j, --json               Format output as structured JSON
+  -l, --lens <name>        Explicitly specify a lens (jest, pytest, tsc, cargo, docker, go, python-lint, js-lint, clang, dotnet, generic)
+  --tail <lines>           Number of raw tail lines to retain in output (default: 8)
+  -q, --quiet-success      Emit minimal zero-token output on clean command execution
+  --max-errors <number>    Maximum number of errors to report before truncating
+  --no-cluster             Disable error clustering and deduplication
+  --ci                     Generate GitHub Actions workflow command annotations
+  -o, --output <file>      Write compacted output directly to a file
+  --init                   Scaffold a starter termlens.config.json file
+  --raw                    Pass through uncompressed output (dry/debug mode)
+  --mcp                    Start the Model Context Protocol (MCP) stdio server
+  --list-lenses            List all registered semantic lenses
+  -v, --version            Display current version
+  -h, --help               Display help manual
 ```
 
 ---

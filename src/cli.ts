@@ -1,10 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { TermlensEngine } from './engine.js';
 import { LensRegistry } from './lenses/index.js';
 import { runMcpServer } from './mcp/server.js';
+import { loadConfig, generateStarterConfig } from './config.js';
 import { TermlensOptions } from './types.js';
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
-  const registry = new LensRegistry();
+  const config = loadConfig();
+  const registry = new LensRegistry(config.customLenses);
   const engine = new TermlensEngine(registry);
 
   // Strip 'node' and script path
@@ -12,8 +16,22 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
 
   // Check for MCP flag
   if (rawArgs.includes('--mcp')) {
-    await runMcpServer(engine);
+    await runMcpServer(engine, registry);
     return;
+  }
+
+  // Check for --init
+  if (rawArgs.includes('--init')) {
+    const configPath = path.join(process.cwd(), 'termlens.config.json');
+    const force = rawArgs.includes('--force');
+    if (fs.existsSync(configPath) && !force) {
+      console.log(`⚠️ Configuration file already exists at ${configPath}`);
+      console.log('Use --force to overwrite.');
+      process.exit(0);
+    }
+    fs.writeFileSync(configPath, generateStarterConfig(), 'utf-8');
+    console.log(`✓ Scaffolded starter configuration: ${configPath}`);
+    process.exit(0);
   }
 
   // Check for standalone --list-lenses
@@ -21,7 +39,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     console.log('\n🔍 Registered termlens Semantic Lenses:');
     console.log('────────────────────────────────────────────────────────────');
     for (const l of registry.listLenses()) {
-      console.log(`  • ${l.name.padEnd(10)} ── ${l.description}`);
+      console.log(`  • ${l.name.padEnd(14)} ── ${l.description}`);
     }
     console.log('');
     process.exit(0);
@@ -31,8 +49,13 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   let agentMode = false;
   let jsonMode = false;
   let rawMode = false;
-  let explicitLens: string | undefined;
-  let tailLines = 8;
+  let ciMode = Boolean(config.ciAnnotations || process.env.GITHUB_ACTIONS === 'true');
+  let quietSuccess = Boolean(config.quietSuccess);
+  let explicitLens: string | undefined = config.defaultLens;
+  let tailLines = config.tailLines ?? 8;
+  let maxErrors = config.maxErrors ?? 8;
+  let noCluster = config.clusterErrors === false;
+  let outputFile: string | undefined;
   const childArgs: string[] = [];
 
   let isChildCommand = false;
@@ -49,8 +72,28 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
         jsonMode = true;
         continue;
       }
+      if (arg === '--quiet-success' || arg === '-q' || arg === '--silent-success') {
+        quietSuccess = true;
+        continue;
+      }
+      if (arg === '--ci') {
+        ciMode = true;
+        continue;
+      }
       if (arg === '--raw') {
         rawMode = true;
+        continue;
+      }
+      if (arg === '--no-cluster') {
+        noCluster = true;
+        continue;
+      }
+      if (arg === '--output' || arg === '-o') {
+        outputFile = rawArgs[++i];
+        continue;
+      }
+      if (arg === '--max-errors') {
+        maxErrors = parseInt(rawArgs[++i] || '8', 10);
         continue;
       }
       if (arg === '--lens' || arg === '-l') {
@@ -63,13 +106,13 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       }
       if (arg === '--version' || arg === '-v') {
         if (childArgs.length === 0) {
-          console.log('termlens v0.1.0');
+          console.log('termlens v0.2.0');
           process.exit(0);
         }
       }
       if (arg === '--help' || arg === '-h') {
         if (childArgs.length === 0) {
-          printHelp(registry);
+          printHelp();
           process.exit(0);
         }
       }
@@ -96,8 +139,18 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       }
 
       if (pipedInput.trim().length > 0) {
-        const result = engine.compactText(pipedInput, explicitLens, 'piped_input');
-        if (jsonMode) {
+        const result = engine.compactText(pipedInput, explicitLens, 'piped_input', {
+          agentMode,
+          jsonMode,
+          quietSuccess,
+          maxErrors,
+          noCluster,
+          outputFile
+        });
+
+        if (ciMode && result.ciFormatted) {
+          console.log(result.ciFormatted);
+        } else if (jsonMode) {
           console.log(result.jsonFormatted);
         } else if (agentMode) {
           console.log(result.agentFormatted);
@@ -108,7 +161,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       }
     }
 
-    printHelp(registry);
+    printHelp();
     process.exit(0);
   }
 
@@ -118,8 +171,13 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     agentMode,
     jsonMode,
     rawMode,
+    ciMode,
+    quietSuccess,
     lens: explicitLens,
-    tailLines
+    tailLines,
+    maxErrors,
+    noCluster,
+    outputFile
   };
 
   const result = await engine.execute(fullCommand, executionOptions);
@@ -127,6 +185,11 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   if (rawMode) {
     for (const line of result.rawTail) {
       console.log(line);
+    }
+  } else if (ciMode && result.ciFormatted) {
+    console.log(result.ciFormatted);
+    if (!jsonMode && !agentMode) {
+      console.log('\n' + result.humanFormatted);
     }
   } else if (jsonMode) {
     console.log(result.jsonFormatted);
@@ -139,9 +202,9 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   process.exit(result.exitCode);
 }
 
-function printHelp(registry: LensRegistry) {
+function printHelp() {
   console.log(`
-🔍 termlens v0.1.0
+🔍 termlens v0.2.0
 Zero-Token Terminal Compactor & Semantic Error Lens for Developers and AI Agents
 
 Usage:
@@ -150,16 +213,26 @@ Usage:
 
 Examples:
   termlens npm test
-  termlens --agent pytest tests/
+  termlens -a pytest tests/
+  termlens -q go test ./...
   termlens -j tsc --noEmit
+  termlens --ci cargo test
   termlens --lens jest npm run test:ci
+  termlens --init
   termlens --mcp
 
 Options:
   -a, --agent          Format output as ultra-compact Markdown for AI agent prompts
   -j, --json           Format output as structured JSON
-  -l, --lens <name>    Explicitly specify a lens (jest, pytest, tsc, cargo, docker, generic)
+  -q, --quiet-success  Suppress output on exit 0 (zero tokens for AI agents on green runs)
+  --ci                 Output GitHub Actions workflow commands (::error file=...::...)
+  -l, --lens <name>    Explicitly specify a lens (jest, pytest, tsc, go, python-lint,
+                       js-lint, clang, dotnet, cargo, docker, generic)
+  -o, --output <file>  Write formatted output to a file
   --tail <lines>       Number of raw tail lines to retain in output (default: 8)
+  --max-errors <n>     Max errors to display before clustering (default: 8)
+  --no-cluster         Disable error deduplication and clustering
+  --init               Scaffold a termlens.config.json configuration file
   --raw                Pass through uncompressed output (dry/debug mode)
   --mcp                Start the Model Context Protocol (MCP) stdio server
   --list-lenses        List all registered semantic lenses

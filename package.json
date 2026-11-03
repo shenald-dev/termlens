@@ -1,6 +1,6 @@
 {
   "name": "termlens",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zero-Token Terminal Compactor & Semantic Error Lens for Developers and AI Agents",
   "keywords": [
     "cli",
@@ -42,7 +42,7 @@
     "build": "tsc",
     "watch": "tsc -w",
     "start": "node ./bin/termlens.js",
-    "test": "node --test tests/ansi.test.js tests/ring-buffer.test.js tests/lenses.test.js tests/engine.test.js tests/benchmark.test.js tests/mcp.test.js",
+    "test": "node --test tests/*.test.js",
     "lint": "tsc --noEmit",
     "prepack": "npm run build"
   },
