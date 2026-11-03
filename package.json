@@ -42,7 +42,7 @@
     "build": "tsc",
     "watch": "tsc -w",
     "start": "node ./bin/termlens.js",
-    "test": "node --test tests/*.test.js",
+    "test": "node --test",
     "lint": "tsc --noEmit",
     "prepack": "npm run build"
   },
