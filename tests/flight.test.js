@@ -115,3 +115,16 @@ test('FlightDiff: accurately detects resolved, new, and persistent failures', ()
   assert.ok(diff.markdown.includes('New / Regressed Failures'));
   assert.ok(diff.markdown.includes('Persistent Failures'));
 });
+
+test('FlightRecorder: guards against path traversal in get()', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'termlens-flight-sec-'));
+  const recorder = new FlightRecorder(tmpDir);
+
+  // Attempt to read files outside baseDir via traversal
+  assert.equal(recorder.get('../../package.json'), null);
+  assert.equal(recorder.get('../something.json'), null);
+  assert.equal(recorder.get('..\\something.json'), null);
+  assert.equal(recorder.get('/etc/passwd'), null);
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});

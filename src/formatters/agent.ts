@@ -21,7 +21,8 @@ export function formatAgent(result: TermlensExecutionResult, quietSuccess: boole
     if (result.flightDiff) {
       lines.push(`\n${result.flightDiff.markdown}`);
     }
-    lines.push(`\n*(termlens reduced ${result.rawLineCount} lines to ${result.compactLineCount} lines: -${result.tokenSavingsPct.toFixed(1)}% tokens)*`);
+    const costStr = result.estimatedCostSavingsUsd > 0 ? ` (~$${result.estimatedCostSavingsUsd.toFixed(4)} saved)` : '';
+    lines.push(`\n*(termlens reduced ${result.rawLineCount} lines to ${result.compactLineCount} lines: -${result.tokenSavingsPct.toFixed(1)}% tokens${costStr})*`);
     return lines.join('\n');
   }
 

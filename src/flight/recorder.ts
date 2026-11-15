@@ -80,10 +80,23 @@ export class FlightRecorder {
    */
   public get(id: string): FlightRecord | null {
     try {
+      if (!id || typeof id !== 'string') return null;
+      // Guard against directory traversal: reject paths with separators or dot-dot
+      if (id.includes('..') || id.includes('/') || id.includes('\\')) {
+        return null;
+      }
       const cleanId = id.endsWith('.json') ? id : `${id}.json`;
+      if (path.basename(cleanId) !== cleanId) {
+        return null;
+      }
       const filePath = path.join(this.baseDir, cleanId);
-      if (!fs.existsSync(filePath)) return null;
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const resolvedPath = path.resolve(filePath);
+      const resolvedBase = path.resolve(this.baseDir);
+      if (!resolvedPath.startsWith(resolvedBase + path.sep) && resolvedPath !== resolvedBase) {
+        return null;
+      }
+      if (!fs.existsSync(resolvedPath)) return null;
+      const content = fs.readFileSync(resolvedPath, 'utf-8');
       return JSON.parse(content) as FlightRecord;
     } catch {
       return null;

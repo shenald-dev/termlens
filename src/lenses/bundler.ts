@@ -51,10 +51,10 @@ export class BundlerLens implements SemanticLens {
             break;
           }
 
-          const fileMatch = next.match(/(?:file:|Plugin:.*?File:)\s*([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9_]+)(?::(\d+)(?::(\d+))?)?/i)
-            || next.match(/^\s*([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9_]+):(\d+):(\d+)/);
+          const fileMatch = next.match(/(?:file:|Plugin:.*?File:)\s*((?:[a-zA-Z]:[\\/])?[^:\r\n]+?\.[a-zA-Z0-9_]+)(?::(\d+)(?::(\d+))?)?/i)
+            || next.match(/^\s*((?:[a-zA-Z]:[\\/])?[^:\r\n]+?\.[a-zA-Z0-9_]+):(\d+):(\d+)/);
           if (fileMatch && !file) {
-            file = fileMatch[1];
+            file = fileMatch[1].trim();
             if (fileMatch[2]) lineNum = parseInt(fileMatch[2], 10);
             if (fileMatch[3]) colNum = parseInt(fileMatch[3], 10);
           } else if (next.trim().startsWith('> ') || next.match(/^\s*\d+\s*\|/)) {
@@ -74,9 +74,9 @@ export class BundlerLens implements SemanticLens {
       }
 
       // 2. Webpack error: ERROR in ./src/index.js 5:12 or Module not found
-      const webpackMatch = line.match(/ERROR in\s+([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9_]+)(?:\s+(\d+):(\d+))?/i);
+      const webpackMatch = line.match(/ERROR in\s+((?:[a-zA-Z]:[\\/])?[^\r\n:]+?\.[a-zA-Z0-9_]+)(?:\s+(\d+):(\d+))?/i);
       if (webpackMatch) {
-        const file = webpackMatch[1];
+        const file = webpackMatch[1].trim();
         const lineNum = webpackMatch[2] ? parseInt(webpackMatch[2], 10) : undefined;
         const colNum = webpackMatch[3] ? parseInt(webpackMatch[3], 10) : undefined;
         let msg = 'Module build failed';
@@ -115,9 +115,9 @@ export class BundlerLens implements SemanticLens {
         i++;
         while (i < lines.length && !lines[i].startsWith('X [ERROR]')) {
           const sub = lines[i];
-          const locMatch = sub.match(/^\s*([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9_]+):(\d+):(\d+):/);
+          const locMatch = sub.match(/^\s*((?:[a-zA-Z]:[\\/])?[^:\r\n]+?\.[a-zA-Z0-9_]+):(\d+):(\d+):/);
           if (locMatch && !file) {
-            file = locMatch[1];
+            file = locMatch[1].trim();
             lineNum = parseInt(locMatch[2], 10);
             colNum = parseInt(locMatch[3], 10);
           } else if (sub.match(/^\s*\d+\s*│/) || sub.match(/^\s*~/)) {
@@ -137,9 +137,9 @@ export class BundlerLens implements SemanticLens {
       }
 
       // 4. Next.js / Generic compile failure: ./app/page.tsx:12:3 - Error: ...
-      const nextMatch = line.match(/^\.\/([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9_]+):(\d+):(\d+)/);
+      const nextMatch = line.match(/^\s*(?:\.\/)?((?:[a-zA-Z]:[\\/])?[^:\r\n]+?\.[a-zA-Z0-9_]+):(\d+):(\d+)/);
       if (nextMatch) {
-        const file = nextMatch[1];
+        const file = nextMatch[1].trim();
         const lineNum = parseInt(nextMatch[2], 10);
         const colNum = parseInt(nextMatch[3], 10);
         let msg = line.replace(/^\.\/[^:]+:\d+:\d+\s*/, '').trim() || 'Compilation failure';

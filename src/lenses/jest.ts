@@ -79,11 +79,11 @@ export class JestVitestLens implements SemanticLens {
         // Stack trace line with file, line, col
         // e.g. "    at Object.<anonymous> (src/auth/jwt.test.ts:42:15)"
         // or " ❯ src/auth/jwt.test.ts:42:15"
-        const stackMatch = line.match(/(?:at |❯\s+)(?:[^(]*\(([^:]+):(\d+):(\d+)\)|([^:]+):(\d+):(\d+))/);
+        const stackMatch = line.match(/(?:at\s+.*?\s*\(|❯\s+)?((?:[a-zA-Z]:[\\/])?[^:()]+):(\d+):(\d+)\)?/);
         if (stackMatch) {
-          const file = stackMatch[1] || stackMatch[4];
-          const lineNum = parseInt(stackMatch[2] || stackMatch[5], 10);
-          const colNum = parseInt(stackMatch[3] || stackMatch[6], 10);
+          const file = stackMatch[1];
+          const lineNum = parseInt(stackMatch[2], 10);
+          const colNum = parseInt(stackMatch[3], 10);
 
           if (!currentError.file && file && !file.includes('node_modules')) {
             currentError.file = file.trim();

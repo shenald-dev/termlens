@@ -56,3 +56,25 @@ test('SourceContextResolver: guards against line overflow and boundary condition
   const resultOverflow = resolver.resolve('package.json', 999999);
   assert.equal(resultOverflow, null);
 });
+
+test('SourceContextResolver: prevents directory traversal and sensitive file access', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'termlens-sec-'));
+  const resolver = new SourceContextResolver();
+
+  // 1. Directory traversal attempt
+  const outsidePath = path.join(tmpDir, '..', '..', '..', 'some_system_file.txt');
+  assert.equal(resolver.resolve(outsidePath, 1, undefined, tmpDir), null);
+
+  // 2. Sensitive credential file (.env)
+  const envFile = path.join(tmpDir, '.env');
+  fs.writeFileSync(envFile, 'DATABASE_PASSWORD=secret123\nAPI_KEY=xyz987', 'utf-8');
+  assert.equal(resolver.resolve(envFile, 1, undefined, tmpDir), null);
+  assert.equal(resolver.resolve('.env', 1, undefined, tmpDir), null);
+
+  // 3. Sensitive key file (.pem)
+  const pemFile = path.join(tmpDir, 'server.pem');
+  fs.writeFileSync(pemFile, '-----BEGIN PRIVATE KEY-----\nMIIB...', 'utf-8');
+  assert.equal(resolver.resolve(pemFile, 1, undefined, tmpDir), null);
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});

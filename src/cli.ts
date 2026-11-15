@@ -196,7 +196,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       }
       if (arg === '--version' || arg === '-v') {
         if (childArgs.length === 0) {
-          console.log('termlens v0.2.0');
+          console.log('termlens v0.3.0');
           process.exit(0);
         }
       }
@@ -299,7 +299,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
 
 function printHelp() {
   console.log(`
-🔍 termlens v0.2.0
+🔍 termlens v0.3.0
 Zero-Token Terminal Compactor & Semantic Error Lens for Developers and AI Agents
 
 Usage:

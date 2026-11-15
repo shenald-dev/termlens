@@ -88,9 +88,19 @@ export class NodeTestLens implements SemanticLens {
           }
 
           // Locate stack frame: e.g. at TestContext.<anonymous> (file:line:col) or at file:line:col
-          const locMatch = subLine.match(/(?:at\s+.*?\s+\(?|\()([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9_]+):(\d+):(\d+)\)?/);
+          const locMatch = subLine.match(/(?:at\s+.*?\s*\(|TestContext\.<anonymous>\s*\(|\()((?:[a-zA-Z]:[\\/])?[^:()]+?\.[a-zA-Z0-9_]+):(\d+):(\d+)\)?/)
+            || subLine.match(/(?:at\s+)?((?:[a-zA-Z]:[\\/])?[^:()]+?\.[a-zA-Z0-9_]+):(\d+):(\d+)/);
           if (locMatch && !file) {
-            file = locMatch[1];
+            let matchedFile = locMatch[1].trim();
+            if (matchedFile.startsWith('file://')) {
+              try {
+                matchedFile = new URL(matchedFile).pathname;
+                if (process.platform === 'win32' && matchedFile.startsWith('/')) {
+                  matchedFile = matchedFile.slice(1);
+                }
+              } catch {}
+            }
+            file = matchedFile;
             lineNum = parseInt(locMatch[2], 10);
             colNum = parseInt(locMatch[3], 10);
             stackFrame = subLine.trim();

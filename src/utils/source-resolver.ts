@@ -47,25 +47,54 @@ export class SourceContextResolver {
         ? path.normalize(filePath)
         : path.normalize(path.resolve(cwd, filePath));
 
-      // Path safety check: ensure the file exists and is a file
+      // Path safety check: ensure the file exists
       if (!fs.existsSync(resolvedPath)) {
         return null;
       }
 
-      const stat = fs.statSync(resolvedPath);
+      // Canonical path containment: ensure resolved path is strictly within cwd
+      // Resolves symbolic links to their real target to prevent symlink escape
+      const realCwd = fs.realpathSync(cwd);
+      const realFile = fs.realpathSync(resolvedPath);
+      const relative = path.relative(realCwd, realFile);
+
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        return null;
+      }
+
+      // Sensitive file filter: prevent reading secrets, credentials, or VCS metadata
+      const fileName = path.basename(realFile).toLowerCase();
+      if (
+        fileName.startsWith('.env') ||
+        fileName.endsWith('.pem') ||
+        fileName.endsWith('.key') ||
+        fileName.endsWith('.pfx') ||
+        fileName.endsWith('.p12') ||
+        fileName === 'id_rsa' ||
+        fileName === 'id_ed25519'
+      ) {
+        return null;
+      }
+
+      const normalizedReal = realFile.toLowerCase().replace(/\\/g, '/');
+      if (normalizedReal.includes('/.git/') || normalizedReal.includes('/.ssh/')) {
+        return null;
+      }
+
+      const stat = fs.statSync(realFile);
       if (!stat.isFile() || stat.size > this.maxFileSizeBytes) {
         return null;
       }
 
-      let lines = this.fileCache.get(resolvedPath);
+      let lines = this.fileCache.get(realFile);
       if (!lines) {
-        const content = fs.readFileSync(resolvedPath, 'utf-8');
+        const content = fs.readFileSync(realFile, 'utf-8');
         lines = content.split(/\r?\n/);
         if (this.fileCache.size >= this.maxCacheEntries) {
           const firstKey = this.fileCache.keys().next().value;
           if (firstKey) this.fileCache.delete(firstKey);
         }
-        this.fileCache.set(resolvedPath, lines);
+        this.fileCache.set(realFile, lines);
       }
 
       const totalLines = lines.length;

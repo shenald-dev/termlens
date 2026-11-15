@@ -109,3 +109,46 @@ test('GradleMavenLens: isolates Maven compiler diagnostics and Gradle task failu
   assert.equal(gradleResult.errors[0].received, '80.0');
   assert.ok(gradleResult.highlights.some(h => h.includes(':test')));
 });
+
+test('Ecosystem Lenses: accurately parse Windows drive letters and paths with spaces', () => {
+  // 1. NodeTestLens with Windows path containing drive letter and spaces
+  const nodeLens = new NodeTestLens();
+  const nodeLog = [
+    'TAP version 13',
+    'not ok 1 - failing subtest',
+    '  ---',
+    '  error: "boom"',
+    '  code: "ERR_ASSERTION"',
+    '  stack: |- ',
+    '    TestContext.<anonymous> (D:\\git hub auto\\sample.test.js:42:10)',
+    '  ...'
+  ];
+  const nodeRes = nodeLens.process(nodeLog, 1);
+  assert.equal(nodeRes.errors.length, 1);
+  assert.equal(nodeRes.errors[0].file, 'D:\\git hub auto\\sample.test.js');
+  assert.equal(nodeRes.errors[0].line, 42);
+  assert.equal(nodeRes.errors[0].column, 10);
+
+  // 2. GradleMavenLens with Windows path containing drive letter and spaces
+  const mavenLens = new GradleMavenLens();
+  const mavenLog = [
+    '[ERROR] C:\\My Projects\\src\\Main.java:[42,15] error: cannot find symbol'
+  ];
+  const mavenRes = mavenLens.process(mavenLog, 1);
+  assert.equal(mavenRes.errors.length, 1);
+  assert.equal(mavenRes.errors[0].file, 'C:\\My Projects\\src\\Main.java');
+  assert.equal(mavenRes.errors[0].line, 42);
+  assert.equal(mavenRes.errors[0].column, 15);
+
+  // 3. BundlerLens with Windows path containing drive letter and spaces
+  const bundlerLens = new BundlerLens();
+  const viteLog = [
+    '[vite] Internal server error: Failed to parse source',
+    '  File: C:\\My Projects\\src\\App.tsx:10:5'
+  ];
+  const bundlerRes = bundlerLens.process(viteLog, 1);
+  assert.equal(bundlerRes.errors.length, 1);
+  assert.equal(bundlerRes.errors[0].file, 'C:\\My Projects\\src\\App.tsx');
+  assert.equal(bundlerRes.errors[0].line, 10);
+  assert.equal(bundlerRes.errors[0].column, 5);
+});

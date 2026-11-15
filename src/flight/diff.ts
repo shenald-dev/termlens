@@ -14,12 +14,14 @@ function clusterKey(cluster: ErrorCluster): string {
 
 export function diffFlights(base: FlightRecord, target: FlightRecord): FlightDiffResult {
   const baseMap = new Map<string, ErrorCluster>();
-  for (const c of base.clusters) {
+  const baseClusters = base.clusters || (base.errors || []).map(e => ({ exemplar: e, occurrences: 1, locations: [], isClustered: false }));
+  for (const c of baseClusters) {
     baseMap.set(clusterKey(c), c);
   }
 
   const targetMap = new Map<string, ErrorCluster>();
-  for (const c of target.clusters) {
+  const targetClusters = target.clusters || (target.errors || []).map(e => ({ exemplar: e, occurrences: 1, locations: [], isClustered: false }));
+  for (const c of targetClusters) {
     targetMap.set(clusterKey(c), c);
   }
 

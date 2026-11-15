@@ -255,7 +255,25 @@ export class TermlensEngine {
           flightDiff
         };
 
-        // Record flight unless explicitly disabled
+        // Generate preliminary agent view to measure compact line metrics
+        const quiet = options.quietSuccess ?? false;
+        const preliminaryAgent = formatAgent(provisional, quiet);
+        const compactLines = preliminaryAgent.split('\n').length;
+
+        const telemetry = calculateTelemetry(
+          provisional.rawLineCount,
+          compactLines,
+          provisional.rawEstimatedTokens,
+          preliminaryAgent
+        );
+
+        provisional.compactCharCount = preliminaryAgent.length;
+        provisional.compactLineCount = compactLines;
+        provisional.compactEstimatedTokens = telemetry.compactEstimatedTokens;
+        provisional.tokenSavingsPct = telemetry.tokenSavingsPct;
+        provisional.estimatedCostSavingsUsd = telemetry.estimatedCostSavingsUsd;
+
+        // Record flight with FULL accurate telemetry
         if (options.recordFlight !== false) {
           const rec = await this.flightRecorder.record(provisional, options.cwd || process.cwd(), remediations);
           if (rec) {
@@ -263,27 +281,8 @@ export class TermlensEngine {
           }
         }
 
-        // Generate agent view first to determine compact metrics
-        const quiet = options.quietSuccess ?? false;
-        const agentView = formatAgent(provisional, quiet);
-        const compactChars = agentView.length;
-        const compactLines = agentView.split('\n').length;
-
-        const telemetry = calculateTelemetry(
-          provisional.rawLineCount,
-          compactLines,
-          provisional.rawEstimatedTokens,
-          agentView
-        );
-
-        provisional.compactCharCount = compactChars;
-        provisional.compactLineCount = compactLines;
-        provisional.compactEstimatedTokens = telemetry.compactEstimatedTokens;
-        provisional.tokenSavingsPct = telemetry.tokenSavingsPct;
-        provisional.estimatedCostSavingsUsd = telemetry.estimatedCostSavingsUsd;
-        provisional.agentFormatted = agentView;
-
-        // Generate human view and json with accurate metrics
+        // Regenerate agent, human, json, and ci views with accurate reduction metrics and flight ID
+        provisional.agentFormatted = formatAgent(provisional, quiet);
         provisional.humanFormatted = formatHuman(provisional, quiet);
         provisional.jsonFormatted = formatJson(provisional);
         provisional.ciFormatted = formatCiAnnotations(provisional);
@@ -373,20 +372,22 @@ export class TermlensEngine {
     };
 
     const quiet = options.quietSuccess ?? false;
-    const agentView = formatAgent(provisional, quiet);
+    const preliminaryAgent = formatAgent(provisional, quiet);
+    const compactLines = preliminaryAgent.split('\n').length;
     const telemetry = calculateTelemetry(
       provisional.rawLineCount,
-      agentView.split('\n').length,
+      compactLines,
       rawTokens,
-      agentView
+      preliminaryAgent
     );
 
-    provisional.compactCharCount = agentView.length;
-    provisional.compactLineCount = agentView.split('\n').length;
+    provisional.compactCharCount = preliminaryAgent.length;
+    provisional.compactLineCount = compactLines;
     provisional.compactEstimatedTokens = telemetry.compactEstimatedTokens;
     provisional.tokenSavingsPct = telemetry.tokenSavingsPct;
     provisional.estimatedCostSavingsUsd = telemetry.estimatedCostSavingsUsd;
-    provisional.agentFormatted = agentView;
+
+    provisional.agentFormatted = formatAgent(provisional, quiet);
     provisional.humanFormatted = formatHuman(provisional, quiet);
     provisional.jsonFormatted = formatJson(provisional);
     provisional.ciFormatted = formatCiAnnotations(provisional);

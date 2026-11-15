@@ -2,6 +2,7 @@ import * as readline from 'node:readline';
 import { TermlensEngine } from '../engine.js';
 import { LensRegistry } from '../lenses/index.js';
 import { diffFlights } from '../flight/diff.js';
+import { ErrorDetail } from '../types.js';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -68,7 +69,7 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
           protocolVersion: '2024-11-05',
           serverInfo: {
             name: 'termlens',
-            version: '0.2.0'
+            version: '0.3.0'
           },
           capabilities: {
             tools: {},
@@ -219,6 +220,121 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
             }
           ]
         }
+      });
+      return;
+    }
+
+    // MCP prompts discovery: prompts/get
+    if (method === 'prompts/get') {
+      const promptName = (params as { name?: string })?.name;
+      const args = (params as { arguments?: Record<string, unknown> })?.arguments || {};
+      const recorder = engine.getFlightRecorder();
+
+      if (promptName === 'fix_terminal_error') {
+        const command = String(args.command || '');
+        const error = args.error ? String(args.error) : undefined;
+        const file = args.file ? String(args.file) : undefined;
+        const line = typeof args.line === 'number' ? args.line : (args.line ? parseInt(String(args.line), 10) : undefined);
+        const snippet = args.snippet ? String(args.snippet) : undefined;
+
+        let errorDetails: ErrorDetail[] = [{ message: error || 'Command execution failed', file, line, snippet }];
+        const latest = recorder.getLatest();
+
+        if (!error && latest && latest.errors.length > 0) {
+          errorDetails = latest.errors;
+        }
+
+        const remediations = engine.getRemediationEngine().analyze(errorDetails, command);
+        const promptLines = [
+          `The terminal command \`${command || (latest ? latest.command : 'unknown')}\` failed.`,
+          '',
+          '### Failure Context:',
+          ...errorDetails.map((e, idx) => `${idx + 1}. ${e.file ? `\`${e.file}${e.line ? `:${e.line}` : ''}\`: ` : ''}${e.message}`)
+        ];
+
+        if (remediations.length > 0) {
+          promptLines.push('', '### Suggested Remediation:');
+          for (const rem of remediations) {
+            promptLines.push(`- **${rem.title}**: ${rem.explanation}`);
+            if (rem.suggestedCommand) promptLines.push(`  Command: \`${rem.suggestedCommand}\``);
+            if (rem.patchHypothesis) promptLines.push(`  Patch: ${rem.patchHypothesis}`);
+          }
+        }
+
+        promptLines.push(
+          '',
+          'Please inspect the failure and propose the minimal correct patch to fix the error.'
+        );
+
+        sendResponse({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            description: 'Fix terminal failure prompt',
+            messages: [
+              {
+                role: 'user',
+                content: {
+                  type: 'text',
+                  text: promptLines.join('\n')
+                }
+              }
+            ]
+          }
+        });
+        return;
+      }
+
+      if (promptName === 'diff_runs') {
+        const baseId = String(args.baseFlightId || 'latest');
+        const targetId = String(args.targetFlightId || 'latest');
+
+        const baseFlight = baseId === 'latest' ? recorder.getLatest() : recorder.get(baseId);
+        const targetFlight = targetId === 'latest' ? recorder.getLatest() : recorder.get(targetId);
+
+        if (!baseFlight || !targetFlight) {
+          sendResponse({
+            jsonrpc: '2.0',
+            id,
+            error: {
+              code: -32602,
+              message: `Could not locate flight records: ${baseId}, ${targetId}`
+            }
+          });
+          return;
+        }
+
+        const diff = diffFlights(baseFlight, targetFlight);
+        const promptLines = [
+          `### Semantic Run Comparison: \`${baseFlight.id}\` ➔ \`${targetFlight.id}\``,
+          diff.markdown,
+          '',
+          'Please analyze the resolved failures versus any new/regressed failures above and verify that no unintended regressions were introduced.'
+        ];
+
+        sendResponse({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            description: 'Run comparison and regression analysis prompt',
+            messages: [
+              {
+                role: 'user',
+                content: {
+                  type: 'text',
+                  text: promptLines.join('\n')
+                }
+              }
+            ]
+          }
+        });
+        return;
+      }
+
+      sendResponse({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32602, message: `Prompt not found: ${promptName}` }
       });
       return;
     }

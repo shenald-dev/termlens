@@ -39,7 +39,9 @@ test('MCP Server v3: supports resources/list, resources/read, termlens_suggest_f
       // 1. Initialize
       const initRes = await request(1, 'initialize');
       assert.strictEqual(initRes.result.serverInfo.name, 'termlens');
+      assert.strictEqual(initRes.result.serverInfo.version, '0.3.0');
       assert.ok(initRes.result.capabilities.resources !== undefined);
+      assert.ok(initRes.result.capabilities.prompts !== undefined);
 
       // 2. Resources list
       const resList = await request(2, 'resources/list');
@@ -52,6 +54,23 @@ test('MCP Server v3: supports resources/list, resources/read, termlens_suggest_f
       const readLenses = await request(3, 'resources/read', { uri: 'termlens://lenses' });
       assert.ok(readLenses.result.contents[0].text.includes('node-test'));
       assert.ok(readLenses.result.contents[0].text.includes('bundler'));
+
+      // 3b. Resources read path traversal protection
+      const readTraversal = await request(31, 'resources/read', { uri: 'termlens://flights/../../package.json' });
+      assert.ok(readTraversal.result.contents[0].text.includes('Flight not found'));
+
+      // 3c. Prompts list and get
+      const promptsList = await request(32, 'prompts/list');
+      const promptNames = promptsList.result.prompts.map(p => p.name);
+      assert.ok(promptNames.includes('fix_terminal_error'));
+      assert.ok(promptNames.includes('diff_runs'));
+
+      const promptGet = await request(33, 'prompts/get', {
+        name: 'fix_terminal_error',
+        arguments: { command: 'npm test', error: 'AssertionError: fail' }
+      });
+      assert.ok(promptGet.result.messages !== undefined);
+      assert.ok(promptGet.result.messages[0].content.text.includes('AssertionError: fail'));
 
       // 4. Tool call: termlens_suggest_fix
       const fixRes = await request(4, 'tools/call', {

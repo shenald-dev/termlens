@@ -26,12 +26,12 @@ test('CLI v2: --list-lenses displays all 11+ registered lenses', async () => {
   assert.equal(stdout.includes('generic'), true);
 });
 
-test('CLI v2: --version outputs v0.2.0', async () => {
+test('CLI v2: --version outputs v0.3.0', async () => {
   const { stdout } = await execFileAsync('node', ['./bin/termlens.js', '--version'], {
     cwd: process.cwd()
   });
 
-  assert.equal(stdout.trim(), 'termlens v0.2.0');
+  assert.equal(stdout.trim(), 'termlens v0.3.0');
 });
 
 test('CLI v2: --init creates termlens.config.json in target directory', async () => {

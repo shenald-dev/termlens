@@ -135,13 +135,16 @@ export class RemediationEngine {
       // 8. Port in Use (EADDRINUSE)
       if (combined.includes('EADDRINUSE') || combined.includes('address already in use')) {
         if (!seenCategories.has('PORT_IN_USE')) {
+          const portMatch = combined.match(/(?:port|:::|:)(\d{2,5})/i);
+          const port = portMatch ? portMatch[1] : '<PORT>';
+          const findCmd = process.platform === 'win32' ? `netstat -ano | findstr :${port}` : `lsof -i :${port}`;
           plans.push({
             category: 'PORT_IN_USE',
             confidence: 'high',
-            title: 'Port collision (EADDRINUSE)',
-            explanation: 'The requested network port is currently occupied by another active process.',
-            suggestedCommand: process.platform === 'win32' ? 'netstat -ano | findstr :<PORT>' : 'lsof -i :<PORT>',
-            patchHypothesis: 'Terminate the existing process or run with an alternate port flag (e.g. PORT=3001).'
+            title: `Port collision (EADDRINUSE${port !== '<PORT>' ? ` on port ${port}` : ''})`,
+            explanation: `The requested network port ${port !== '<PORT>' ? port : ''} is currently occupied by another active process.`,
+            suggestedCommand: findCmd,
+            patchHypothesis: `Terminate the existing process using port ${port} or run with an alternate port flag (e.g. PORT=3001).`
           });
           seenCategories.add('PORT_IN_USE');
         }

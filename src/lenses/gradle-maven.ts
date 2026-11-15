@@ -33,9 +33,9 @@ export class GradleMavenLens implements SemanticLens {
       const line = lines[i];
 
       // 1. Maven compiler error: [ERROR] /path/to/File.java:[42,15] cannot find symbol
-      const mavenMatch = line.match(/\[ERROR\]\s+([a-zA-Z0-9_\-./\\]+\.(?:java|kt)):\[(\d+),(\d+)\]\s+(?:error:\s*)?(.+)$/i);
+      const mavenMatch = line.match(/\[ERROR\]\s+((?:[a-zA-Z]:[\\/])?[^:\[\r\n]+\.(?:java|kt)):\[(\d+),(\d+)\]\s+(?:error:\s*)?(.+)$/i);
       if (mavenMatch) {
-        const file = mavenMatch[1];
+        const file = mavenMatch[1].trim();
         const lineNum = parseInt(mavenMatch[2], 10);
         const colNum = parseInt(mavenMatch[3], 10);
         let msg = mavenMatch[4].trim();
@@ -64,15 +64,15 @@ export class GradleMavenLens implements SemanticLens {
       }
 
       // 2. Gradle / javac compiler error: /path/to/File.java:42: error: cannot find symbol
-      const gradleMatch = line.match(/^([a-zA-Z0-9_\-./\\]+\.(?:java|kt)):(\d+):\s+(?:error:\s*)?(.+)$/i);
+      const gradleMatch = line.match(/^((?:[a-zA-Z]:[\\/])?[^:\r\n]+\.(?:java|kt)):(\d+):\s+(?:error:\s*)?(.+)$/i);
       if (gradleMatch) {
-        const file = gradleMatch[1];
+        const file = gradleMatch[1].trim();
         const lineNum = parseInt(gradleMatch[2], 10);
         let msg = gradleMatch[3].trim();
         const snippetLines: string[] = [];
 
         i++;
-        while (i < lines.length && !lines[i].match(/^[a-zA-Z0-9_\-./\\]+\.(?:java|kt):\d+:/)) {
+        while (i < lines.length && !lines[i].match(/^((?:[a-zA-Z]:[\\/])?[^:\r\n]+\.(?:java|kt)):(\d+):/)) {
           const sub = lines[i];
           if (sub.startsWith('>') || sub.includes('BUILD FAILED')) break;
           if (sub.trim().startsWith('symbol:') || sub.trim().startsWith('location:')) {
