@@ -281,15 +281,16 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     for (const line of result.rawTail) {
       console.log(line);
     }
-  } else if (ciMode && result.ciFormatted) {
-    console.log(result.ciFormatted);
-    if (!jsonMode && !agentMode) {
-      console.log('\n' + result.humanFormatted);
-    }
   } else if (jsonMode) {
     console.log(result.jsonFormatted);
   } else if (agentMode) {
+    if (ciMode && result.ciFormatted) {
+      console.log(result.ciFormatted);
+    }
     console.log(result.agentFormatted);
+  } else if (ciMode && result.ciFormatted) {
+    console.log(result.ciFormatted);
+    console.log('\n' + result.humanFormatted);
   } else {
     console.log(result.humanFormatted);
   }
