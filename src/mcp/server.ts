@@ -1,6 +1,7 @@
 import * as readline from 'node:readline';
 import { TermlensEngine } from '../engine.js';
 import { LensRegistry } from '../lenses/index.js';
+import { diffFlights } from '../flight/diff.js';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -25,7 +26,7 @@ interface JsonRpcResponse {
  * Compatible with Claude Code, Cursor, Codex, Antigravity, and all MCP-compliant tools.
  */
 export async function runMcpServer(engine: TermlensEngine, registry?: LensRegistry): Promise<void> {
-  const activeRegistry = registry || new LensRegistry();
+  const activeRegistry = registry || engine.getRegistry() || new LensRegistry();
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -71,14 +72,15 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
           },
           capabilities: {
             tools: {},
-            prompts: {}
+            prompts: {},
+            resources: {}
           }
         }
       });
       return;
     }
 
-    // MCP notification: notifications/initialized (no response required by json-rpc notifications)
+    // MCP notification: notifications/initialized
     if (method === 'notifications/initialized' || method === 'initialized') {
       return;
     }
@@ -89,7 +91,99 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
       return;
     }
 
-    // MCP prompts discovery
+    // MCP resources discovery: resources/list
+    if (method === 'resources/list') {
+      sendResponse({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          resources: [
+            {
+              uri: 'termlens://flights/latest',
+              name: 'Latest Flight Recording',
+              description: 'Telemetry, isolated errors, and duration for the most recent command execution.',
+              mimeType: 'application/json'
+            },
+            {
+              uri: 'termlens://lenses',
+              name: 'Registered Semantic Lenses',
+              description: 'List of all built-in and user-defined lenses supported by termlens.',
+              mimeType: 'application/json'
+            }
+          ]
+        }
+      });
+      return;
+    }
+
+    // MCP resource reading: resources/read
+    if (method === 'resources/read') {
+      const uri = String((params as { uri?: string })?.uri || '');
+      const recorder = engine.getFlightRecorder();
+
+      if (uri === 'termlens://flights/latest') {
+        const latest = recorder.getLatest();
+        sendResponse({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            contents: [
+              {
+                uri,
+                mimeType: 'application/json',
+                text: JSON.stringify(latest || { status: 'none', message: 'No recorded flights yet' }, null, 2)
+              }
+            ]
+          }
+        });
+        return;
+      }
+
+      if (uri.startsWith('termlens://flights/')) {
+        const flightId = uri.replace('termlens://flights/', '');
+        const flight = recorder.get(flightId);
+        sendResponse({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            contents: [
+              {
+                uri,
+                mimeType: 'application/json',
+                text: JSON.stringify(flight || { error: 'Flight not found' }, null, 2)
+              }
+            ]
+          }
+        });
+        return;
+      }
+
+      if (uri === 'termlens://lenses') {
+        sendResponse({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            contents: [
+              {
+                uri,
+                mimeType: 'application/json',
+                text: JSON.stringify(activeRegistry.listLenses(), null, 2)
+              }
+            ]
+          }
+        });
+        return;
+      }
+
+      sendResponse({
+        jsonrpc: '2.0',
+        id,
+        error: { code: -32602, message: `Resource not found: ${uri}` }
+      });
+      return;
+    }
+
+    // MCP prompts discovery: prompts/list
     if (method === 'prompts/list') {
       sendResponse({
         jsonrpc: '2.0',
@@ -103,6 +197,22 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
                 {
                   name: 'command',
                   description: 'The command that failed',
+                  required: true
+                }
+              ]
+            },
+            {
+              name: 'diff_runs',
+              description: 'Compares two execution runs or flight recordings to pinpoint newly introduced regressions.',
+              arguments: [
+                {
+                  name: 'baseFlightId',
+                  description: 'The baseline flight ID or "latest"',
+                  required: true
+                },
+                {
+                  name: 'targetFlightId',
+                  description: 'The target flight ID to compare against',
                   required: true
                 }
               ]
@@ -132,7 +242,7 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
                   },
                   lens: {
                     type: 'string',
-                    description: 'Optional explicit lens to apply: jest, pytest, tsc, go, python-lint, js-lint, clang, dotnet, cargo, docker, generic (default: auto)'
+                    description: 'Optional explicit lens to apply: node-test, jest, pytest, tsc, bundler, go, python-lint, js-lint, clang, dotnet, gradle-maven, cargo, docker, generic (default: auto)'
                   },
                   cwd: {
                     type: 'string',
@@ -149,6 +259,14 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
                   maxErrors: {
                     type: 'number',
                     description: 'Maximum number of errors to report before clustering (default: 8)'
+                  },
+                  diffWithLast: {
+                    type: 'boolean',
+                    description: 'If true, semantically diffs the current run against the preceding flight recording'
+                  },
+                  enrichSource: {
+                    type: 'boolean',
+                    description: 'If true (default), enriches errors with local source code snippets'
                   }
                 },
                 required: ['command']
@@ -166,14 +284,79 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
                   },
                   lens: {
                     type: 'string',
-                    description: 'Optional lens to apply: jest, pytest, tsc, go, python-lint, js-lint, clang, dotnet, cargo, docker, generic'
+                    description: 'Optional lens to apply: node-test, jest, pytest, tsc, bundler, go, python-lint, js-lint, clang, dotnet, gradle-maven, cargo, docker, generic'
                   },
                   quietSuccess: {
                     type: 'boolean',
                     description: 'If true, produces minimal output on passing runs'
+                  },
+                  enrichSource: {
+                    type: 'boolean',
+                    description: 'If true, enriches errors with local source code context'
                   }
                 },
                 required: ['text']
+              }
+            },
+            {
+              name: 'termlens_suggest_fix',
+              description: 'Synthesizes autonomous diagnostic and remediation recipes for isolated terminal errors, including auto-fix commands and patch hypotheses.',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  error: {
+                    type: 'string',
+                    description: 'The error message or failure summary'
+                  },
+                  command: {
+                    type: 'string',
+                    description: 'The command that failed (e.g. npm test, go test, tsc)'
+                  },
+                  file: {
+                    type: 'string',
+                    description: 'The failing file path if known'
+                  },
+                  line: {
+                    type: 'number',
+                    description: 'The line number of the failure'
+                  },
+                  snippet: {
+                    type: 'string',
+                    description: 'The source code snippet around the failure'
+                  }
+                },
+                required: ['error']
+              }
+            },
+            {
+              name: 'termlens_diff',
+              description: 'Semantically compares two flight runs to report resolved errors, new regressions, and persistent failures.',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  baseFlightId: {
+                    type: 'string',
+                    description: 'The baseline flight ID (or "latest" for most recent)'
+                  },
+                  targetFlightId: {
+                    type: 'string',
+                    description: 'The target flight ID to compare against'
+                  }
+                },
+                required: ['baseFlightId', 'targetFlightId']
+              }
+            },
+            {
+              name: 'termlens_flight_inspect',
+              description: 'Inspects recorded flight logs and telemetry from .termlens/flights.',
+              inputSchema: {
+                type: 'object',
+                properties: {
+                  flightId: {
+                    type: 'string',
+                    description: 'Flight ID to inspect (defaults to "latest")'
+                  }
+                }
               }
             },
             {
@@ -224,6 +407,8 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
         const timeoutMs = typeof args.timeoutMs === 'number' ? args.timeoutMs : 60000;
         const quietSuccess = Boolean(args.quietSuccess);
         const maxErrors = typeof args.maxErrors === 'number' ? args.maxErrors : 8;
+        const diffWithLast = Boolean(args.diffWithLast);
+        const enrichSource = args.enrichSource !== false;
 
         try {
           const result = await engine.execute(command, {
@@ -232,7 +417,9 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
             timeoutMs,
             agentMode: true,
             quietSuccess,
-            maxErrors
+            maxErrors,
+            diffWithLast,
+            enrichSource
           });
 
           sendResponse({
@@ -265,11 +452,13 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
         const text = String(args.text || '');
         const lens = args.lens ? String(args.lens) : undefined;
         const quietSuccess = Boolean(args.quietSuccess);
+        const enrichSource = Boolean(args.enrichSource);
 
         try {
           const result = engine.compactText(text, lens, 'piped_input', {
             agentMode: true,
-            quietSuccess
+            quietSuccess,
+            enrichSource
           });
 
           sendResponse({
@@ -295,6 +484,101 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
             }
           });
         }
+        return;
+      }
+
+      if (toolName === 'termlens_suggest_fix') {
+        const error = String(args.error || '');
+        const command = args.command ? String(args.command) : '';
+        const file = args.file ? String(args.file) : undefined;
+        const line = typeof args.line === 'number' ? args.line : undefined;
+        const snippet = args.snippet ? String(args.snippet) : undefined;
+
+        const remediations = engine.getRemediationEngine().analyze(
+          [{ message: error, file, line, snippet }],
+          command
+        );
+
+        sendResponse({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(remediations, null, 2)
+              }
+            ]
+          }
+        });
+        return;
+      }
+
+      if (toolName === 'termlens_diff') {
+        const baseId = String(args.baseFlightId || '');
+        const targetId = String(args.targetFlightId || '');
+        const recorder = engine.getFlightRecorder();
+
+        const baseFlight = baseId === 'latest' ? recorder.getLatest() : recorder.get(baseId);
+        const targetFlight = targetId === 'latest' ? recorder.getLatest() : recorder.get(targetId);
+
+        if (!baseFlight || !targetFlight) {
+          sendResponse({
+            jsonrpc: '2.0',
+            id,
+            error: {
+              code: -32602,
+              message: `Could not find flight records: ${baseId}, ${targetId}`
+            }
+          });
+          return;
+        }
+
+        const diff = diffFlights(baseFlight, targetFlight);
+        sendResponse({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: diff.markdown
+              }
+            ]
+          }
+        });
+        return;
+      }
+
+      if (toolName === 'termlens_flight_inspect') {
+        const flightId = args.flightId ? String(args.flightId) : 'latest';
+        const recorder = engine.getFlightRecorder();
+        const record = flightId === 'latest' ? recorder.getLatest() : recorder.get(flightId);
+
+        if (!record) {
+          sendResponse({
+            jsonrpc: '2.0',
+            id,
+            error: {
+              code: -32602,
+              message: `No flight found for id: ${flightId}`
+            }
+          });
+          return;
+        }
+
+        sendResponse({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(record, null, 2)
+              }
+            ]
+          }
+        });
         return;
       }
 
@@ -328,7 +612,23 @@ export async function runMcpServer(engine: TermlensEngine, registry?: LensRegist
         if (snippet) {
           explanationParts.push(`**Context:**\n\`\`\`\n${snippet}\n\`\`\``);
         }
-        explanationParts.push(`**Recommended Action:** Inspect the cited file and assertion expectations. Ensure types, mocks, and return signatures match.`);
+
+        const remediations = engine.getRemediationEngine().analyze(
+          [{ message: error, file: file || undefined, snippet: snippet || undefined }],
+          ''
+        );
+
+        if (remediations.length > 0) {
+          explanationParts.push(`**Remediation Recommendation:** ${remediations[0].explanation}`);
+          if (remediations[0].suggestedCommand) {
+            explanationParts.push(`**Suggested Command:** \`${remediations[0].suggestedCommand}\``);
+          }
+          if (remediations[0].patchHypothesis) {
+            explanationParts.push(`**Patch Hypothesis:** ${remediations[0].patchHypothesis}`);
+          }
+        } else {
+          explanationParts.push(`**Recommended Action:** Inspect the cited file and assertion expectations. Ensure types, mocks, and return signatures match.`);
+        }
 
         sendResponse({
           jsonrpc: '2.0',

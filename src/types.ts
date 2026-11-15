@@ -1,3 +1,17 @@
+export interface SourceLine {
+  lineNum: number;
+  content: string;
+  isTarget: boolean;
+}
+
+export interface SourceContext {
+  file: string;
+  line: number;
+  column?: number;
+  lines: SourceLine[];
+  formattedSnippet: string;
+}
+
 export interface ErrorDetail {
   file?: string;
   line?: number;
@@ -7,6 +21,9 @@ export interface ErrorDetail {
   expected?: string;
   received?: string;
   snippet?: string;
+  sourceContext?: SourceContext;
+  category?: string;
+  suggestedFix?: string;
 }
 
 export interface ErrorCluster {
@@ -21,6 +38,61 @@ export interface LensProcessResult {
   errors: ErrorDetail[];
   highlights?: string[];
   suggestedAction?: string;
+}
+
+export interface RemediationPlan {
+  category: string;
+  confidence: 'high' | 'medium' | 'low';
+  title: string;
+  explanation: string;
+  suggestedCommand?: string;
+  patchHypothesis?: string;
+}
+
+export interface FlightTelemetry {
+  rawLines: number;
+  compactLines: number;
+  rawEstimatedTokens: number;
+  compactEstimatedTokens: number;
+  tokensSaved: number;
+  tokenSavingsPct: number;
+  estimatedCostSavingsUsd: number;
+}
+
+export interface FlightRecord {
+  id: string;
+  timestamp: string;
+  command: string;
+  cwd: string;
+  gitBranch?: string;
+  gitCommit?: string;
+  exitCode: number;
+  durationMs: number;
+  status: 'success' | 'failure' | 'timeout';
+  lensUsed: string;
+  summary: string;
+  errorCount: number;
+  clusterCount: number;
+  clusters: ErrorCluster[];
+  errors: ErrorDetail[];
+  remediations: RemediationPlan[];
+  telemetry: FlightTelemetry;
+}
+
+export interface FlightDiffResult {
+  baseFlightId: string;
+  targetFlightId: string;
+  baseCommand: string;
+  targetCommand: string;
+  statusDelta: string;
+  resolvedCount: number;
+  newCount: number;
+  persistentCount: number;
+  resolvedErrors: ErrorCluster[];
+  newErrors: ErrorCluster[];
+  persistentErrors: ErrorCluster[];
+  summary: string;
+  markdown: string;
 }
 
 export interface TermlensExecutionResult {
@@ -47,6 +119,9 @@ export interface TermlensExecutionResult {
   agentFormatted: string;
   jsonFormatted: string;
   ciFormatted?: string;
+  flightId?: string;
+  remediations?: RemediationPlan[];
+  flightDiff?: FlightDiffResult;
 }
 
 export interface TermlensOptions {
@@ -64,4 +139,10 @@ export interface TermlensOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  recordFlight?: boolean;
+  flightDir?: string;
+  diffWithFlightId?: string;
+  diffWithLast?: boolean;
+  enrichSource?: boolean;
+  maxRawBytes?: number;
 }

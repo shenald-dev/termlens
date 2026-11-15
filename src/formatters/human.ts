@@ -12,17 +12,26 @@ export function formatHuman(result: TermlensExecutionResult, quietSuccess: boole
 
   // Top header banner
   const lensBadge = pc.cyan(`[lens: ${result.lensUsed}]`);
-  const header = `${pc.bold(pc.cyan('🔍 termlens'))} ${pc.dim(`v0.2.0`)} ${lensBadge}`;
+  const flightBadge = result.flightId ? ` ${pc.magenta(`[flight: ${result.flightId}]`)}` : '';
+  const header = `${pc.bold(pc.cyan('🔍 termlens'))} ${pc.dim(`v0.3.0`)} ${lensBadge}${flightBadge}`;
   lines.push(header);
   lines.push(divider);
 
   // Status & Command header
   const isPass = result.status === 'success';
-  const statusBadge = isPass 
-    ? pc.bold(pc.green('✓ PASSED')) 
+  const statusBadge = isPass
+    ? pc.bold(pc.green('✓ PASSED'))
     : pc.bold(pc.red(`✗ FAILED (exit ${result.exitCode})`));
-  
+
   lines.push(`${statusBadge} ${pc.bold(pc.white(result.command))}`);
+
+  // Display Flight Diff if available
+  if (result.flightDiff) {
+    lines.push('');
+    lines.push(`  ${pc.bold(pc.magenta('Δ Flight Delta:'))} ${pc.dim(result.flightDiff.statusDelta)}`);
+    lines.push(`  ${pc.green(`-${result.flightDiff.resolvedCount} resolved`)}  │  ${pc.red(`+${result.flightDiff.newCount} new`)}  │  ${pc.yellow(`${result.flightDiff.persistentCount} persistent`)}`);
+    lines.push('');
+  }
 
   if (isPass) {
     lines.push(`  ${pc.green(result.summary)}`);
@@ -65,7 +74,17 @@ export function formatHuman(result: TermlensExecutionResult, quietSuccess: boole
           if (err.received) lines.push(`      ${pc.red('Received:')} ${err.received}`);
         }
 
-        if (err.snippet) {
+        if (err.sourceContext) {
+          lines.push(`      ${pc.dim('Source Context:')}`);
+          for (const s of err.sourceContext.lines) {
+            const numStr = String(s.lineNum).padStart(4, ' ');
+            if (s.isTarget) {
+              lines.push(`      ${pc.bold(pc.red('>'))} ${pc.yellow(numStr)} │ ${pc.bold(pc.white(s.content))}`);
+            } else {
+              lines.push(`        ${pc.dim(numStr)} │ ${pc.dim(s.content)}`);
+            }
+          }
+        } else if (err.snippet) {
           lines.push(`      ${pc.dim('Code:')}`);
           const snippetLines = err.snippet.split('\n');
           for (const s of snippetLines.slice(0, 5)) {
@@ -83,7 +102,20 @@ export function formatHuman(result: TermlensExecutionResult, quietSuccess: boole
       });
     }
 
-    if (result.suggestedAction) {
+    // Remediation suggestions
+    if (result.remediations && result.remediations.length > 0) {
+      for (const rem of result.remediations) {
+        lines.push(`  💡 ${pc.bold(pc.cyan('Suggested Remediation:'))} ${rem.title}`);
+        lines.push(`     ${pc.dim(rem.explanation)}`);
+        if (rem.suggestedCommand) {
+          lines.push(`     ${pc.green('$')} ${pc.bold(pc.white(rem.suggestedCommand))}`);
+        }
+        if (rem.patchHypothesis) {
+          lines.push(`     ${pc.yellow('Patch:')} ${pc.dim(rem.patchHypothesis)}`);
+        }
+        lines.push('');
+      }
+    } else if (result.suggestedAction) {
       lines.push(`  💡 ${pc.bold(pc.cyan('Suggested action:'))} ${result.suggestedAction}`);
       lines.push('');
     }
@@ -101,8 +133,8 @@ export function formatHuman(result: TermlensExecutionResult, quietSuccess: boole
   // Bottom telemetry bar
   lines.push(divider);
   const savingsText = `(${result.tokenSavingsPct.toFixed(1)}% token savings)`;
-  const styledSavings = result.tokenSavingsPct > 50 
-    ? pc.bold(pc.green(savingsText)) 
+  const styledSavings = result.tokenSavingsPct > 50
+    ? pc.bold(pc.green(savingsText))
     : pc.yellow(savingsText);
 
   const costText = result.estimatedCostSavingsUsd > 0

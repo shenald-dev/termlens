@@ -9,13 +9,44 @@ import { formatAgent, formatJson } from './formatters/agent.js';
 import { formatCiAnnotations } from './formatters/ci.js';
 import { clusterErrors } from './utils/cluster.js';
 import { calculateTelemetry } from './utils/telemetry.js';
-import { TermlensExecutionResult, TermlensOptions } from './types.js';
+import { SourceContextResolver } from './utils/source-resolver.js';
+import { RemediationEngine } from './utils/remediation.js';
+import { FlightRecorder } from './flight/recorder.js';
+import { diffFlights } from './flight/diff.js';
+import {
+  TermlensExecutionResult,
+  TermlensOptions,
+  FlightRecord,
+  FlightDiffResult
+} from './types.js';
 
 export class TermlensEngine {
   private registry: LensRegistry;
+  private sourceResolver: SourceContextResolver;
+  private remediationEngine: RemediationEngine;
+  private flightRecorder: FlightRecorder;
 
-  constructor(registry?: LensRegistry) {
+  constructor(registry?: LensRegistry, flightDir?: string) {
     this.registry = registry || new LensRegistry();
+    this.sourceResolver = new SourceContextResolver();
+    this.remediationEngine = new RemediationEngine();
+    this.flightRecorder = new FlightRecorder(flightDir);
+  }
+
+  public getRegistry(): LensRegistry {
+    return this.registry;
+  }
+
+  public getFlightRecorder(): FlightRecorder {
+    return this.flightRecorder;
+  }
+
+  public getSourceResolver(): SourceContextResolver {
+    return this.sourceResolver;
+  }
+
+  public getRemediationEngine(): RemediationEngine {
+    return this.remediationEngine;
   }
 
   /**
@@ -25,6 +56,8 @@ export class TermlensEngine {
     const startTime = Date.now();
     const ringBuffer = new RingBuffer<string>(options.tailLines ? Math.max(500, options.tailLines * 10) : 1000);
     const rawChunks: Buffer[] = [];
+    let rawAccumulatedBytes = 0;
+    const maxRawBytes = options.maxRawBytes ?? 10 * 1024 * 1024; // 10 MB streaming ceiling
     let rawCharCount = 0;
     let rawLineCount = 0;
 
@@ -89,7 +122,10 @@ export class TermlensEngine {
       }
 
       const handleChunk = (chunk: Buffer) => {
-        rawChunks.push(chunk);
+        if (rawAccumulatedBytes < maxRawBytes) {
+          rawChunks.push(chunk);
+          rawAccumulatedBytes += chunk.length;
+        }
         rawCharCount += chunk.length;
         const text = chunk.toString('utf-8');
         const lines = text.split(/\r?\n/);
@@ -112,7 +148,7 @@ export class TermlensEngine {
         handleChunk(Buffer.from(`Process error: ${err.message}\n`));
       });
 
-      child.on('close', (code, _signal) => {
+      child.on('close', async (code, _signal) => {
         if (timer) clearTimeout(timer);
         const durationMs = Date.now() - startTime;
         const exitCode = timedOut ? 124 : (code ?? (timedOut ? 1 : 0));
@@ -125,6 +161,17 @@ export class TermlensEngine {
         // Select and run lens
         const lens = this.registry.getLens(options.lens, command, finalRawLines.slice(0, 50));
         const lensOutput = lens.process(finalRawLines, exitCode);
+
+        // Enrich source context unless opted out
+        if (options.enrichSource !== false) {
+          this.sourceResolver.enrichErrors(lensOutput.errors, options.cwd || process.cwd());
+        }
+
+        // Run autonomous remediation engine
+        const remediations = this.remediationEngine.analyze(lensOutput.errors, command);
+        if (!lensOutput.suggestedAction && remediations.length > 0) {
+          lensOutput.suggestedAction = remediations[0].explanation;
+        }
 
         // Cluster and deduplicate errors unless disabled
         const maxErrors = options.maxErrors ?? 8;
@@ -143,7 +190,44 @@ export class TermlensEngine {
 
         const status = timedOut ? 'timeout' : (exitCode === 0 ? 'success' : 'failure');
 
-        // Build provisional result to format
+        // Check for flight diff
+        let flightDiff: FlightDiffResult | undefined;
+        if (options.diffWithLast || options.diffWithFlightId) {
+          const baseFlight = options.diffWithFlightId
+            ? this.flightRecorder.get(options.diffWithFlightId)
+            : this.flightRecorder.getLatest();
+
+          if (baseFlight) {
+            const tempTargetFlight: FlightRecord = {
+              id: 'current_run',
+              timestamp: new Date().toISOString(),
+              command,
+              cwd: options.cwd || process.cwd(),
+              exitCode,
+              durationMs,
+              status,
+              lensUsed: lens.name,
+              summary: timedOut ? `Command timed out after ${options.timeoutMs}ms` : lensOutput.summary,
+              errorCount: lensOutput.errors.length,
+              clusterCount: clustered.clusters.length,
+              clusters: clustered.clusters,
+              errors: lensOutput.errors,
+              remediations,
+              telemetry: {
+                rawLines: Math.max(1, rawLineCount, finalRawLines.length),
+                compactLines: 0,
+                rawEstimatedTokens: estimateTokens(fullRawText),
+                compactEstimatedTokens: 0,
+                tokensSaved: 0,
+                tokenSavingsPct: 0,
+                estimatedCostSavingsUsd: 0
+              }
+            };
+            flightDiff = diffFlights(baseFlight, tempTargetFlight);
+          }
+        }
+
+        // Build provisional result
         const provisional: TermlensExecutionResult = {
           command,
           exitCode,
@@ -166,8 +250,18 @@ export class TermlensEngine {
           rawTail,
           humanFormatted: '',
           agentFormatted: '',
-          jsonFormatted: ''
+          jsonFormatted: '',
+          remediations,
+          flightDiff
         };
+
+        // Record flight unless explicitly disabled
+        if (options.recordFlight !== false) {
+          const rec = await this.flightRecorder.record(provisional, options.cwd || process.cwd(), remediations);
+          if (rec) {
+            provisional.flightId = rec.id;
+          }
+        }
 
         // Generate agent view first to determine compact metrics
         const quiet = options.quietSuccess ?? false;
@@ -230,6 +324,17 @@ export class TermlensEngine {
     const exitCode = isError ? 1 : 0;
     const lensOutput = lens.process(normalizedLines, exitCode);
 
+    // Enrich source context unless opted out
+    if (options.enrichSource !== false) {
+      this.sourceResolver.enrichErrors(lensOutput.errors, options.cwd || process.cwd());
+    }
+
+    // Run autonomous remediation engine
+    const remediations = this.remediationEngine.analyze(lensOutput.errors, commandName);
+    if (!lensOutput.suggestedAction && remediations.length > 0) {
+      lensOutput.suggestedAction = remediations[0].explanation;
+    }
+
     const maxErrors = options.maxErrors ?? 8;
     const clustered = options.noCluster
       ? {
@@ -263,7 +368,8 @@ export class TermlensEngine {
       rawTail: normalizedLines.slice(-5),
       humanFormatted: '',
       agentFormatted: '',
-      jsonFormatted: ''
+      jsonFormatted: '',
+      remediations
     };
 
     const quiet = options.quietSuccess ?? false;

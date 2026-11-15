@@ -1,7 +1,9 @@
 import { SemanticLens } from './lens.interface.js';
 import { JestVitestLens } from './jest.js';
+import { NodeTestLens } from './node-runner.js';
 import { PytestLens } from './pytest.js';
 import { TscLens } from './tsc.js';
+import { BundlerLens } from './bundler.js';
 import { CargoLens } from './cargo.js';
 import { DockerLens } from './docker.js';
 import { GolangLens } from './golang.js';
@@ -9,14 +11,17 @@ import { PythonLintLens } from './python-lint.js';
 import { JsLintLens } from './js-lint.js';
 import { ClangLens } from './clang.js';
 import { DotnetLens } from './dotnet.js';
+import { GradleMavenLens } from './gradle-maven.js';
 import { CustomLens } from './custom.js';
 import { GenericLens } from './generic.js';
 import { CustomLensDef } from '../config.js';
 
 export { SemanticLens } from './lens.interface.js';
 export { JestVitestLens } from './jest.js';
+export { NodeTestLens } from './node-runner.js';
 export { PytestLens } from './pytest.js';
 export { TscLens } from './tsc.js';
+export { BundlerLens } from './bundler.js';
 export { CargoLens } from './cargo.js';
 export { DockerLens } from './docker.js';
 export { GolangLens } from './golang.js';
@@ -24,6 +29,7 @@ export { PythonLintLens } from './python-lint.js';
 export { JsLintLens } from './js-lint.js';
 export { ClangLens } from './clang.js';
 export { DotnetLens } from './dotnet.js';
+export { GradleMavenLens } from './gradle-maven.js';
 export { CustomLens } from './custom.js';
 export { GenericLens } from './generic.js';
 
@@ -45,14 +51,17 @@ export class LensRegistry {
 
     // Specialized built-in ecosystem lenses
     this.lenses.push(
+      new NodeTestLens(),
       new JestVitestLens(),
       new PytestLens(),
       new TscLens(),
+      new BundlerLens(),
       new GolangLens(),
       new PythonLintLens(),
       new JsLintLens(),
       new ClangLens(),
       new DotnetLens(),
+      new GradleMavenLens(),
       new CargoLens(),
       new DockerLens()
     );

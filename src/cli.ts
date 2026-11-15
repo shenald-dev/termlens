@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import pc from 'picocolors';
 import { TermlensEngine } from './engine.js';
 import { LensRegistry } from './lenses/index.js';
 import { runMcpServer } from './mcp/server.js';
 import { loadConfig, generateStarterConfig } from './config.js';
+import { diffFlights } from './flight/diff.js';
 import { TermlensOptions } from './types.js';
 
 export async function runCli(argv: string[] = process.argv): Promise<void> {
@@ -34,6 +36,70 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     process.exit(0);
   }
 
+  // Check for flight management subcommands: termlens flight list / show / diff
+  if (rawArgs[0] === 'flight' || rawArgs[0] === 'flights') {
+    const subCmd = rawArgs[1] || 'list';
+    const recorder = engine.getFlightRecorder();
+
+    if (subCmd === 'list') {
+      const limit = rawArgs[2] ? parseInt(rawArgs[2], 10) : 10;
+      const flights = recorder.list(limit);
+      if (flights.length === 0) {
+        console.log('\n🛫 No flight recordings found in .termlens/flights');
+        process.exit(0);
+      }
+      console.log(`\n🛫 Recent termlens Flight Recordings (showing ${flights.length}):`);
+      console.log('─────────────────────────────────────────────────────────────────────────────');
+      console.log(
+        pc.bold('ID'.padEnd(24)) +
+        pc.bold('STATUS'.padEnd(10)) +
+        pc.bold('LENS'.padEnd(12)) +
+        pc.bold('FAILURES'.padEnd(10)) +
+        pc.bold('COMMAND')
+      );
+      console.log('─────────────────────────────────────────────────────────────────────────────');
+      for (const f of flights) {
+        const statusColor = f.status === 'success' ? pc.green('PASSED'.padEnd(10)) : pc.red('FAILED'.padEnd(10));
+        const failCount = String(f.errorCount).padEnd(10);
+        console.log(`${pc.cyan(f.id.padEnd(24))}${statusColor}${f.lensUsed.padEnd(12)}${failCount}${pc.white(f.command)}`);
+      }
+      console.log('');
+      process.exit(0);
+    }
+
+    if (subCmd === 'show' || subCmd === 'inspect') {
+      const targetId = rawArgs[2] || 'latest';
+      const flight = targetId === 'latest' ? recorder.getLatest() : recorder.get(targetId);
+      if (!flight) {
+        console.error(`Error: Flight record not found for id: ${targetId}`);
+        process.exit(1);
+      }
+      console.log(JSON.stringify(flight, null, 2));
+      process.exit(0);
+    }
+
+    if (subCmd === 'diff') {
+      const id1 = rawArgs[2];
+      const id2 = rawArgs[3];
+      if (!id1 || !id2) {
+        console.error('Usage: termlens flight diff <flight-id-1> <flight-id-2>');
+        process.exit(1);
+      }
+      const flight1 = id1 === 'latest' ? recorder.getLatest() : recorder.get(id1);
+      const flight2 = id2 === 'latest' ? recorder.getLatest() : recorder.get(id2);
+      if (!flight1 || !flight2) {
+        console.error(`Error: Could not locate one or both flight records: ${id1}, ${id2}`);
+        process.exit(1);
+      }
+      const diff = diffFlights(flight1, flight2);
+      console.log(diff.markdown);
+      process.exit(0);
+    }
+
+    console.error(`Unknown flight subcommand: ${subCmd}. Valid options: list, show, diff`);
+    process.exit(1);
+  }
+
   // Check for standalone --list-lenses
   if (rawArgs.length === 1 && rawArgs[0] === '--list-lenses') {
     console.log('\n🔍 Registered termlens Semantic Lenses:');
@@ -56,6 +122,10 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
   let maxErrors = config.maxErrors ?? 8;
   let noCluster = config.clusterErrors === false;
   let outputFile: string | undefined;
+  let diffWithLast = false;
+  let diffWithFlightId: string | undefined;
+  let enrichSource = true;
+  let recordFlight = true;
   const childArgs: string[] = [];
 
   let isChildCommand = false;
@@ -86,6 +156,26 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
       }
       if (arg === '--no-cluster') {
         noCluster = true;
+        continue;
+      }
+      if (arg === '--diff-last' || arg === '--diff') {
+        diffWithLast = true;
+        continue;
+      }
+      if (arg === '--diff-with') {
+        diffWithFlightId = rawArgs[++i];
+        continue;
+      }
+      if (arg === '--no-source') {
+        enrichSource = false;
+        continue;
+      }
+      if (arg === '--no-flight') {
+        recordFlight = false;
+        continue;
+      }
+      if (arg === '--flight') {
+        recordFlight = true;
         continue;
       }
       if (arg === '--output' || arg === '-o') {
@@ -145,6 +235,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
           quietSuccess,
           maxErrors,
           noCluster,
+          enrichSource,
           outputFile
         });
 
@@ -177,6 +268,10 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     tailLines,
     maxErrors,
     noCluster,
+    diffWithLast,
+    diffWithFlightId,
+    enrichSource,
+    recordFlight,
     outputFile
   };
 
@@ -209,6 +304,7 @@ Zero-Token Terminal Compactor & Semantic Error Lens for Developers and AI Agents
 
 Usage:
   termlens [options] <command...>
+  termlens flight <list|show|diff>
   cat noisy.log | termlens [options]
 
 Examples:
@@ -216,8 +312,11 @@ Examples:
   termlens -a pytest tests/
   termlens -q go test ./...
   termlens -j tsc --noEmit
+  termlens --diff-last npm test
   termlens --ci cargo test
   termlens --lens jest npm run test:ci
+  termlens flight list
+  termlens flight diff <flight1> <flight2>
   termlens --init
   termlens --mcp
 
@@ -226,8 +325,12 @@ Options:
   -j, --json           Format output as structured JSON
   -q, --quiet-success  Suppress output on exit 0 (zero tokens for AI agents on green runs)
   --ci                 Output GitHub Actions workflow commands (::error file=...::...)
-  -l, --lens <name>    Explicitly specify a lens (jest, pytest, tsc, go, python-lint,
-                       js-lint, clang, dotnet, cargo, docker, generic)
+  --diff-last          Semantically diff current run against the previous recorded flight
+  --diff-with <id>     Semantically diff current run against a specific flight recording
+  --no-source          Disable automatic AST source code context extraction
+  --no-flight          Disable incident flight recording to .termlens/flights
+  -l, --lens <name>    Explicitly specify a lens (node-test, jest, pytest, tsc, bundler,
+                       go, python-lint, js-lint, clang, dotnet, gradle-maven, cargo, docker, generic)
   -o, --output <file>  Write formatted output to a file
   --tail <lines>       Number of raw tail lines to retain in output (default: 8)
   --max-errors <n>     Max errors to display before clustering (default: 8)

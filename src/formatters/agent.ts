@@ -18,6 +18,9 @@ export function formatAgent(result: TermlensExecutionResult, quietSuccess: boole
     if (result.highlights.length > 0) {
       lines.push(`- **Status**: ${result.highlights.join('; ')}`);
     }
+    if (result.flightDiff) {
+      lines.push(`\n${result.flightDiff.markdown}`);
+    }
     lines.push(`\n*(termlens reduced ${result.rawLineCount} lines to ${result.compactLineCount} lines: -${result.tokenSavingsPct.toFixed(1)}% tokens)*`);
     return lines.join('\n');
   }
@@ -28,6 +31,11 @@ export function formatAgent(result: TermlensExecutionResult, quietSuccess: boole
   parts.push(statusHeader);
   parts.push(`- **Lens**: ${result.lensUsed}`);
   parts.push(`- **Summary**: ${result.summary}`);
+
+  // If flight diff was requested, display it
+  if (result.flightDiff) {
+    parts.push(`\n${result.flightDiff.markdown}`);
+  }
 
   // Use clusters if available, else standard errors
   if (result.clusters && result.clusters.length > 0) {
@@ -53,9 +61,10 @@ export function formatAgent(result: TermlensExecutionResult, quietSuccess: boole
         if (err.received) parts.push(`   - Received: \`${err.received}\``);
       }
 
-      if (err.snippet) {
+      const snippetToUse = (err.sourceContext && err.sourceContext.formattedSnippet) || err.snippet;
+      if (snippetToUse) {
         parts.push('   ```');
-        parts.push(`   ${err.snippet.split('\n').slice(0, 3).join('\n   ')}`);
+        parts.push(`   ${snippetToUse.split('\n').slice(0, 3).join('\n   ')}`);
         parts.push('   ```');
       }
     });
@@ -71,9 +80,10 @@ export function formatAgent(result: TermlensExecutionResult, quietSuccess: boole
         if (err.received) parts.push(`   - Received: \`${err.received}\``);
       }
 
-      if (err.snippet) {
+      const snippetToUse = (err.sourceContext && err.sourceContext.formattedSnippet) || err.snippet;
+      if (snippetToUse) {
         parts.push('   ```');
-        parts.push(`   ${err.snippet.split('\n').slice(0, 3).join('\n   ')}`);
+        parts.push(`   ${snippetToUse.split('\n').slice(0, 3).join('\n   ')}`);
         parts.push('   ```');
       }
     });
@@ -99,6 +109,7 @@ export function formatJson(result: TermlensExecutionResult): string {
     exitCode: result.exitCode,
     status: result.status,
     lensUsed: result.lensUsed,
+    flightId: result.flightId,
     durationMs: result.durationMs,
     tokenSavingsPct: Number(result.tokenSavingsPct.toFixed(1)),
     rawEstimatedTokens: result.rawEstimatedTokens,
@@ -109,6 +120,8 @@ export function formatJson(result: TermlensExecutionResult): string {
     summary: result.summary,
     errors: result.errors,
     clusters: result.clusters,
+    remediations: result.remediations,
+    flightDiff: result.flightDiff,
     suggestedAction: result.suggestedAction,
     highlights: result.highlights
   }, null, 2);
