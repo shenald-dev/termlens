@@ -351,7 +351,7 @@ npm run build
 # Run lint & typecheck
 npm run lint
 
-# Run all 59 automated test suites
+# Run all 62 automated tests
 npm test
 
 # Run empirical performance benchmarks
