@@ -59,7 +59,7 @@ When you or your AI coding agent (Claude Code, Cursor, Codex, Gemini CLI, Aider)
 
 ---
 
-## 🌟 The 10x Breakthrough Capabilities
+## 🌟 Breakthrough Capabilities
 
 ### 1. 🛫 Deterministic Incident Flight Recorder & Semantic Run Diff
 In agent and developer feedback loops, errors evolve between runs. `termlens` automatically records each execution into a deterministic, lightweight flight log (`.termlens/flights/`) and gives you instant **Semantic Delta Diffing**:
